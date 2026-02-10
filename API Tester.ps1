@@ -1,20 +1,26 @@
-#region Initialization
+<#
+.SYNOPSIS
+    API Tester – Windows Forms based PowerShell utility.
 
-# Determine the script's root directory to locate configuration and log files.
-# This approach works for both standard execution and in the PowerShell ISE.
-$scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Path $MyInvocation.MyCommand.Path -Parent }
+.DESCRIPTION
+    This script provides a graphical interface for testing REST APIs.
+    It supports request configuration, authentication handling, execution,
+#region Logging
+    response inspection, and logging.
 
-# Define directories for organization
+#>
+
+
+$scriptRoot = if ($pSScriptRoot) { $pSScriptRoot } else { Split-Path -Path $myInvocation.MyCommand.Path -Parent }
+
 $configDir = Join-Path -Path $scriptRoot -ChildPath "Configuration"
 $historyDir = Join-Path -Path $scriptRoot -ChildPath "History"
 $logsDir = Join-Path -Path $scriptRoot -ChildPath "Logs"
 
-# Auto-create directories if they don't exist
 if (-not (Test-Path -Path $configDir)) { New-Item -ItemType Directory -Path $configDir -Force | Out-Null }
 if (-not (Test-Path -Path $historyDir)) { New-Item -ItemType Directory -Path $historyDir -Force | Out-Null }
 if (-not (Test-Path -Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
 
-# Migration: Move existing files to new locations if they exist in root
 $filesToMoveToConfig = @("api_tester_settings.json", "api_tester_settings.json.bak", "api_tester_environments.json", "api_tester_globals.json", "api_tester_collections.json", "api_tester_monitors.json", "api_tester_workspace.apw")
 foreach ($file in $filesToMoveToConfig) {
     $sourcePath = Join-Path -Path $scriptRoot -ChildPath $file
@@ -33,7 +39,6 @@ foreach ($file in $filesToMoveToHistory) {
     }
 }
 
-# Migration: Move log files to Logs folder
 $filesToMoveToLogs = @("api_tester.log")
 foreach ($file in $filesToMoveToLogs) {
     $sourcePath = Join-Path -Path $scriptRoot -ChildPath $file
@@ -41,14 +46,12 @@ foreach ($file in $filesToMoveToLogs) {
     if ((Test-Path -Path $sourcePath) -and -not (Test-Path -Path $destPath)) {
         Move-Item -Path $sourcePath -Destination $destPath -Force
     }
-    # Check History folder (migration from previous version)
     $historySourcePath = Join-Path -Path $historyDir -ChildPath $file
     if ((Test-Path -Path $historySourcePath) -and -not (Test-Path -Path $destPath)) {
         Move-Item -Path $historySourcePath -Destination $destPath -Force
     }
 }
 
-# Define paths for log, history, settings, and environment configuration files.
 $logFilePath = Join-Path -Path $logsDir -ChildPath "api_tester.csv"
 $historyFilePath = Join-Path -Path $historyDir -ChildPath "api_tester_history.json"
 $settingsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_settings.json"
@@ -60,12 +63,12 @@ $monitorLogFilePath = Join-Path -Path $historyDir -ChildPath "api_tester_monitor
 $grpcHistoryFilePath = Join-Path -Path $historyDir -ChildPath "api_tester_grpc_history.json"
 
 try {
-    # Load required .NET assemblies for creating the Windows Forms GUI.
+#endregion
+#region GUI Initialization and Layout
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     Add-Type -AssemblyName System.Windows.Forms.DataVisualization -ErrorAction SilentlyContinue
 
-    # High DPI Awareness & Visual Styles (Pro Enhancement)
     if ([Environment]::OSVersion.Version.Major -ge 6) {
         if (-not ([System.Management.Automation.PSTypeName]'Win32.NativeMethods').Type) {
             Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();' -Name "NativeMethods" -Namespace Win32 | Out-Null
@@ -75,15 +78,12 @@ try {
     [System.Windows.Forms.Application]::EnableVisualStyles()
 }
 catch {
-    # If assemblies fail to load, display an error and exit, as the GUI cannot be rendered.
     Write-Error "Failed to load Windows Forms assemblies. This script requires a graphical environment."
     Write-Host "Failed to load assemblies: $($_.Exception.Message)"
     exit
 }
 
-#endregion
 
-#region UI Theme & Icons
 
 $script:Theme = @{
     FormBackground      = [System.Drawing.ColorTranslator]::FromHtml("#f0f2f5")
@@ -97,18 +97,26 @@ $script:Theme = @{
     DangerButtonText    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
 }
 
+
+
 #endregion
-
-#region Core Helper Functions
-
-# Writes a timestamped message to the log file if logging is enabled in settings.
+#region Logging
+<#
+.SYNOPSIS
+    Write function.
+.DESCRIPTION
+    Handles logic related to Write.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Write-Log {
     param (
-        [string]$Message,
-        [ValidateSet('Info', 'Debug')][string]$Level = 'Debug' # Default to Debug for existing calls
+        [string]$message,
+        [ValidateSet('Info', 'Debug')][string]$level = 'Debug' 
     )
     if ($script:settings.EnableLogs) {
-        # Log Rotation: Check if file exceeds 5MB and rotate if necessary
         if (Test-Path $logFilePath) {
             try {
                 if ((Get-Item $logFilePath).Length -gt 5MB) {
@@ -116,86 +124,112 @@ function Write-Log {
                     $logName = [System.IO.Path]::GetFileName($logFilePath)
                     Rename-Item -Path $logFilePath -NewName "$logName.$timestamp.bak" -ErrorAction SilentlyContinue
 
-                    # Cleanup old logs (keep last 5)
                     $logDir = [System.IO.Path]::GetDirectoryName($logFilePath)
                     Get-ChildItem -Path $logDir -Filter "$logName.*.bak" | Sort-Object CreationTime -Descending | Select-Object -Skip 5 | Remove-Item -Force -ErrorAction SilentlyContinue
                 }
             } catch { }
         }
-        # Only log if the level is 'Info' or if the configured level is 'Debug'
-        if ($Level -eq 'Info' -or $script:settings.LogLevel -eq 'Debug') {
+        if ($level -eq 'Info' -or $script:settings.LogLevel -eq 'Debug') {
             $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             if (-not (Test-Path $logFilePath)) {
                 Add-Content -Path $logFilePath -Value "Timestamp,Level,Message"
             }
-            $safeMessage = '"' + $Message.Replace('"', '""') + '"'
-            $logEntry = "$timestamp,$Level,$safeMessage"
+            $safeMessage = '"' + $message.Replace('"', '""') + '"'
+            $logEntry = "$timestamp,$level,$safeMessage"
             Add-Content -Path $logFilePath -Value $logEntry
         }
     }
 }
 
-# Factory function to create a System.Windows.Forms.Label control.
+<#
+.SYNOPSIS
+    New function.
+.DESCRIPTION
+    Handles logic related to New.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function New-Label {
     param (
-        [string]$Text,
-        [Parameter(Mandatory=$false)][System.Drawing.Point]$Location,
-        [Parameter(Mandatory=$false)][System.Drawing.Size]$Size,
-        [Parameter(Mandatory=$false)][hashtable]$Property
+        [string]$text,
+        [Parameter(Mandatory=$false)][System.Drawing.Point]$location,
+        [Parameter(Mandatory=$false)][System.Drawing.Size]$size,
+        [Parameter(Mandatory=$false)][hashtable]$property
     )
+#endregion
+#region GUI Initialization and Layout
     $label = New-Object System.Windows.Forms.Label
-    $label.Text = $Text
-    if ($Location) { $label.Location = $Location }
-    if ($Size) { $label.Size = $Size }
-    if ($Property) {
-        foreach ($p in $Property.Keys) {
-            try { $label.$p = $Property[$p] } catch { }
+    $label.Text = $text
+    if ($location) { $label.Location = $location }
+    if ($size) { $label.Size = $size }
+    if ($property) {
+        foreach ($p in $property.Keys) {
+            try { $label.$p = $property[$p] } catch { }
         }
     }
     return $label
 }
 
-# Factory function to create a System.Windows.Forms.TextBox control.
+<#
+.SYNOPSIS
+    New function.
+.DESCRIPTION
+    Handles logic related to New.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function New-TextBox {
     param (
-        [Parameter(Mandatory=$false)][System.Drawing.Point]$Location,
-        [Parameter(Mandatory=$false)][System.Drawing.Size]$Size,
-        [Parameter(Mandatory=$false)][bool]$Multiline,
-        [Parameter(Mandatory=$false)][hashtable]$Property
+        [Parameter(Mandatory=$false)][System.Drawing.Point]$location,
+        [Parameter(Mandatory=$false)][System.Drawing.Size]$size,
+        [Parameter(Mandatory=$false)][bool]$multiline,
+        [Parameter(Mandatory=$false)][hashtable]$property
     )
     $textBox = New-Object System.Windows.Forms.TextBox
-    if ($Location) { $textBox.Location = $Location }
-    if ($Size) { $textBox.Size = $Size }
-    if ($PSBoundParameters.ContainsKey('Multiline')) { $textBox.Multiline = $Multiline }
-    if ($Property) {
-        foreach ($p in $Property.Keys) {
-            try { $textBox.$p = $Property[$p] } catch { }
+    if ($location) { $textBox.Location = $location }
+    if ($size) { $textBox.Size = $size }
+    if ($pSBoundParameters.ContainsKey('Multiline')) { $textBox.Multiline = $multiline }
+    if ($property) {
+        foreach ($p in $property.Keys) {
+            try { $textBox.$p = $property[$p] } catch { }
         }
     }
     return $textBox
 }
 
-# Factory function to create a System.Windows.Forms.Button control.
+<#
+.SYNOPSIS
+    New function.
+.DESCRIPTION
+    Handles logic related to New.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function New-Button {
     param (
-        [string]$Text,
-        [Parameter(Mandatory=$false)][System.Drawing.Point]$Location,
-        [Parameter(Mandatory=$false)][System.Drawing.Size]$Size,
-        [scriptblock]$OnClick,
-        [Parameter(Mandatory=$false)][hashtable]$Property,
-        [Parameter(Mandatory=$false)][ValidateSet('Primary', 'Secondary', 'Danger')][string]$Style = 'Secondary'
+        [string]$text,
+        [Parameter(Mandatory=$false)][System.Drawing.Point]$location,
+        [Parameter(Mandatory=$false)][System.Drawing.Size]$size,
+        [scriptblock]$onClick,
+        [Parameter(Mandatory=$false)][hashtable]$property,
+        [Parameter(Mandatory=$false)][ValidateSet('Primary', 'Secondary', 'Danger')][string]$style = 'Secondary'
     )
     $button = New-Object System.Windows.Forms.Button
-    $button.Text = $Text
-    if ($Location) { $button.Location = $Location }
-    if ($Size) { $button.Size = $Size }
+    $button.Text = $text
+    if ($location) { $button.Location = $location }
+    if ($size) { $button.Size = $size }
 
-    # Apply modern styling
     $button.FlatStyle = 'Flat'
     $button.FlatAppearance.BorderSize = 0
     $button.Font = New-Object System.Drawing.Font($button.Font.FontFamily, 9, [System.Drawing.FontStyle]::Bold)
 
-    switch ($Style) {
+    switch ($style) {
         'Primary' {
             $button.BackColor = $script:Theme.PrimaryButton
             $button.ForeColor = $script:Theme.PrimaryButtonText
@@ -204,36 +238,45 @@ function New-Button {
             $button.BackColor = $script:Theme.DangerButton
             $button.ForeColor = $script:Theme.DangerButtonText
         }
-        default { # Secondary
+        default { 
             $button.BackColor = $script:Theme.SecondaryButton
             $button.ForeColor = $script:Theme.SecondaryButtonText
         }
     }
 
-    if ($Property) {
-        foreach ($p in $Property.Keys) {
-            try { $button.$p = $Property[$p] } catch { }
+    if ($property) {
+        foreach ($p in $property.Keys) {
+            try { $button.$p = $property[$p] } catch { }
         }
     }
-    $button.Add_Click($OnClick)
+    $button.Add_Click($onClick)
     return $button
 }
 
-# Factory function to create a System.Windows.Forms.RichTextBox control.
+<#
+.SYNOPSIS
+    New function.
+.DESCRIPTION
+    Handles logic related to New.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function New-RichTextBox {
     param (
-        [Parameter(Mandatory=$false)][System.Drawing.Point]$Location,
-        [Parameter(Mandatory=$false)][System.Drawing.Size]$Size,
-        [Parameter(Mandatory=$false)][bool]$ReadOnly,
-        [Parameter(Mandatory=$false)][hashtable]$Property
+        [Parameter(Mandatory=$false)][System.Drawing.Point]$location,
+        [Parameter(Mandatory=$false)][System.Drawing.Size]$size,
+        [Parameter(Mandatory=$false)][bool]$readOnly,
+        [Parameter(Mandatory=$false)][hashtable]$property
     )
     $richTextBox = New-Object System.Windows.Forms.RichTextBox
-    if ($Location) { $richTextBox.Location = $Location }
-    if ($Size) { $richTextBox.Size = $Size }
-    $richTextBox.ReadOnly = $ReadOnly
-    if ($Property) {
-        foreach ($p in $Property.Keys) {
-            try { $richTextBox.$p = $Property[$p] } catch { }
+    if ($location) { $richTextBox.Location = $location }
+    if ($size) { $richTextBox.Size = $size }
+    $richTextBox.ReadOnly = $readOnly
+    if ($property) {
+        foreach ($p in $property.Keys) {
+            try { $richTextBox.$p = $property[$p] } catch { }
         }
     }
     $richTextBox.ScrollBars = [System.Windows.Forms.RichTextBoxScrollBars]::Both
@@ -241,29 +284,34 @@ function New-RichTextBox {
     return $richTextBox
 }
 
-# Creates a context menu with a "Copy" item for a given text-based control.
+<#
+.SYNOPSIS
+    New function.
+.DESCRIPTION
+    Handles logic related to New.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function New-CopyContextMenu {
-    param([System.Windows.Forms.TextBoxBase]$ParentControl)
+    param([System.Windows.Forms.TextBoxBase]$parentControl)
 
     $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
 
     $copyMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Copy")
-    $copyMenuItem.Tag = $ParentControl # Store the control reference
+    $copyMenuItem.Tag = $parentControl 
     $copyMenuItem.Add_Click({
-        $controlToCopy = $this.Tag # Retrieve the correct text box
+        $controlToCopy = $this.Tag 
         if ($controlToCopy.SelectionLength -gt 0) {
-            # If there's a selection, copy just the selection
             $controlToCopy.Copy()
         } elseif (-not [string]::IsNullOrEmpty($controlToCopy.Text)) {
-            # Otherwise, if there's any text at all, copy all of it
             [System.Windows.Forms.Clipboard]::SetText($controlToCopy.Text)
         }
     })
 
     [void]$contextMenu.Add_Opening({
         param($sender, $e)
-        # Enable the "Copy" item only if the associated control contains text or has a selection.
-        # The 'sender' is the context menu. We retrieve the copyMenuItem from its Items collection.
         $menuItem = $sender.Items[0]
         $menuItem.Enabled = (-not [string]::IsNullOrEmpty($menuItem.Tag.Text) -or $menuItem.Tag.SelectionLength -gt 0)
     })
@@ -272,33 +320,62 @@ function New-CopyContextMenu {
     return $contextMenu
 }
 
-# Simple JSON path evaluator (e.g. $.data.token or data.items[0].id)
+<#
+.SYNOPSIS
+    Get function.
+.DESCRIPTION
+    Handles logic related to Get.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Get-JsonPathValue {
     param(
-        [object]$JsonObject,
-        [string]$Path
+        [object]$jsonObject,
+        [string]$path
     )
-    if (-not $JsonObject -or [string]::IsNullOrWhiteSpace($Path)) { return $null }
+    if (-not $jsonObject -or [string]::IsNullOrWhiteSpace($path)) { return $null }
 
-    $clean = $Path.Trim()
+    $clean = $path.Trim()
     if ($clean.StartsWith('$')) { $clean = $clean.TrimStart('$') }
     if ($clean.StartsWith('.')) { $clean = $clean.Substring(1) }
-    if ([string]::IsNullOrWhiteSpace($clean)) { return $JsonObject }
+    if ([string]::IsNullOrWhiteSpace($clean)) { return $jsonObject }
 
+<#
+.SYNOPSIS
+    Get function.
+.DESCRIPTION
+    Handles logic related to Get.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Get-PropertyValue {
-        param([object]$Obj, [string]$Name)
-        if ($Obj -is [hashtable]) {
-            if ($Obj.ContainsKey($Name)) { return $Obj[$Name] }
+        param([object]$obj, [string]$name)
+        if ($obj -is [hashtable]) {
+            if ($obj.ContainsKey($name)) { return $obj[$name] }
             return $null
         }
-        if ($Obj -and $Obj.PSObject.Properties.Name -contains $Name) { return $Obj.$Name }
+        if ($obj -and $obj.PSObject.Properties.Name -contains $name) { return $obj.$name }
         return $null
     }
 
+<#
+.SYNOPSIS
+    Get function.
+.DESCRIPTION
+    Handles logic related to Get.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Get-ByPathSimple {
-        param([object]$Obj, [string]$NamePath)
-        $cur = $Obj
-        foreach ($part in ($NamePath -split '\.')) {
+        param([object]$obj, [string]$namePath)
+        $cur = $obj
+        foreach ($part in ($namePath -split '\.')) {
             if ([string]::IsNullOrWhiteSpace($part)) { continue }
             $cur = Get-PropertyValue -Obj $cur -Name $part
             if ($null -eq $cur) { return $null }
@@ -306,6 +383,16 @@ function Get-JsonPathValue {
         return $cur
     }
 
+<#
+.SYNOPSIS
+    Split function.
+.DESCRIPTION
+    Handles logic related to Split.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Split-JsonPathSegments {
         param([string]$p)
         $segments = New-Object System.Collections.Generic.List[string]
@@ -324,7 +411,7 @@ function Get-JsonPathValue {
         return $segments
     }
 
-    $nodes = @($JsonObject)
+    $nodes = @($jsonObject)
     $segments = Split-JsonPathSegments -p $clean
 
     foreach ($seg in $segments) {
@@ -421,44 +508,50 @@ function Get-JsonPathValue {
     return $nodes
 }
 
-# Converts a JSON string into Rich Text Format (RTF) with syntax highlighting.
+<#
+.SYNOPSIS
+    Format function.
+.DESCRIPTION
+    Handles logic related to Format.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Format-JsonAsRtf {
     param(
-        [string]$JsonString,
-        [int]$FontSize = 9
+        [string]$jsonString,
+        [int]$fontSize = 9
     )    
 
-    # Performance Check: If JSON is too large (>100KB), skip highlighting to prevent UI freeze.
-    if ($JsonString.Length -gt 100000) {
-        $halfPoints = $FontSize * 2
-        $escaped = $JsonString.Replace('\', '\\').Replace('{', '\{').Replace('}', '\}')
+    if ($jsonString.Length -gt 100000) {
+        $halfPoints = $fontSize * 2
+        $escaped = $jsonString.Replace('\', '\\').Replace('{', '\{').Replace('}', '\}')
         return "{\rtf1\ansi\deff0{\fonttbl{\f0 Courier New;}}\fs$halfPoints $escaped}"
     }
 
-    # Define RTF color table. \cf1=Key, \cf2=String, \cf3=Number, \cf4=Boolean, \cf5=Null
-    $halfPoints = $FontSize * 2
+    $halfPoints = $fontSize * 2
     $rtfHeader = "{\rtf1\ansi\deff0{\fonttbl{\f0 Courier New;}}\fs$halfPoints"
     $colorTable = '{\colortbl;\red0\green0\blue0;\red163\green21\blue21;\red0\green0\blue205;\red0\green128\blue0;\red128\green0\blue128;\red128\green128\blue128;}'
     $rtfBuilder = New-Object System.Text.StringBuilder
     $rtfBuilder.Append($rtfHeader).Append($colorTable)
 
-    # This regex tokenizes the JSON string, capturing strings, numbers, keywords, and punctuation.
     $jsonTokenRegex = '("(\\"|[^"])*")|(-?\d+(\.\d+)?([eE][+-]?\d+)?)|(true|false|null)|([\{\}\[\]:,])'
-    $matches = [regex]::Matches($JsonString, $jsonTokenRegex)
+    $matches = [regex]::Matches($jsonString, $jsonTokenRegex)
     $indentationLevel = 0
     $isKey = $false
 
     foreach ($match in $matches) {
         $value = $match.Value
-        $colorIndex = 1 # Default to black text color.
+        $colorIndex = 1 
 
-        if ($match.Groups[1].Success) { # String            
-            $colorIndex = if ($isKey) { 2 } else { 3 } # Use key color or string color.
+        if ($match.Groups[1].Success) { 
+            $colorIndex = if ($isKey) { 2 } else { 3 } 
             $isKey = $false
         }
-        elseif ($match.Groups[3].Success) { $colorIndex = 3 } # Number
-        elseif ($match.Groups[6].Success) { $colorIndex = 4 } # Boolean or Null.
-        elseif ($match.Groups[7].Success) { # Punctuation
+        elseif ($match.Groups[3].Success) { $colorIndex = 3 } 
+        elseif ($match.Groups[6].Success) { $colorIndex = 4 } 
+        elseif ($match.Groups[7].Success) { 
             $isKey = $false
             if ($value -eq '{' -or $value -eq '[') {
                 $indentationLevel++
@@ -483,7 +576,6 @@ function Format-JsonAsRtf {
             }
         }
 
-        # Escape special RTF characters and append the colored, formatted text.
         $escapedValue = $value.Replace('\', '\\').Replace('{', '\{').Replace('}', '\}')
         $rtfBuilder.Append("\cf$colorIndex $escapedValue") | Out-Null
     }
@@ -492,21 +584,37 @@ function Format-JsonAsRtf {
     return $rtfBuilder.ToString()
 }
 
-# Converts a "redlinedocument" JSON object into a visually formatted RTF string.
+<#
+.SYNOPSIS
+    Format function.
+.DESCRIPTION
+    Handles logic related to Format.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Format-RedlineAsRtf {
     param(
-        [PSCustomObject]$RedlineJson,
-        [int]$FontSize = 9
+        [PSCustomObject]$redlineJson,
+        [int]$fontSize = 9
     )
 
     $rtfBuilder = New-Object System.Text.StringBuilder
-    # Define RTF header with a color table for changes.
-    # \cf1=Black, \cf2=Red (Deletions), \cf3=Blue (Insertions)
-    $halfPoints = $FontSize * 2
+    $halfPoints = $fontSize * 2
     $rtfBuilder.Append("{\rtf1\ansi\deff0{\fonttbl{\f0 Times New Roman;}}\fs$halfPoints")
     $rtfBuilder.Append('{\colortbl;\red0\green0\blue0;\red255\green0\blue0;\red0\green0\blue255;}') | Out-Null
 
-    # Helper function to recursively process content nodes
+<#
+.SYNOPSIS
+    Process function.
+.DESCRIPTION
+    Handles logic related to Process.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Process-Node {
         param($node)
 
@@ -516,24 +624,20 @@ function Format-RedlineAsRtf {
             }
             "paragraph" {
                 if ($node.isdeleted) {
-                    # Skip rendering deleted paragraphs entirely for clarity
                 } else {
                     foreach ($child in $node.content) { Process-Node -node $child }
-                    $script:rtfBuilder.Append('\par ') | Out-Null # End of paragraph
+                    $script:rtfBuilder.Append('\par ') | Out-Null 
                 }
             }
             "change" {
                 if ($node.type -eq "deletion") {
-                    $script:rtfBuilder.Append('\cf2\strike ') | Out-Null # Red, strikethrough
+                    $script:rtfBuilder.Append('\cf2\strike ') | Out-Null 
                     foreach ($child in $node.content) { Process-Node -node $child }
-                    $script:rtfBuilder.Append('\strike0\cf1 ') | Out-Null # Reset format
+                    $script:rtfBuilder.Append('\strike0\cf1 ') | Out-Null 
                 }
-                # Note: Insertions are handled by their text content having a different color/decoration
-                # in a more complex implementation. For now, we just render the text.
             }
-            default { # This will handle text runs
+            default { 
                 if ($node.text) {
-                    # Escape special RTF characters
                     $escapedText = $node.text.Replace('\', '\\').Replace('{', '\{').Replace('}', '\}')
                     $script:rtfBuilder.Append($escapedText) | Out-Null
                 }
@@ -541,16 +645,24 @@ function Format-RedlineAsRtf {
         }
     }
 
-    # Set the builder in a script scope so the helper function can access it
     $script:rtfBuilder = $rtfBuilder
-    Process-Node -node $RedlineJson
-    $script:rtfBuilder = $null # Clean up
+    Process-Node -node $redlineJson
+    $script:rtfBuilder = $null 
 
     $rtfBuilder.Append('}') | Out-Null
     return $rtfBuilder.ToString()
 }
 
-# Determines the MIME type of a file based on its extension.
+<#
+.SYNOPSIS
+    Get function.
+.DESCRIPTION
+    Handles logic related to Get.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Get-MimeType {
     param([string]$filePath)
     $extension = [System.IO.Path]::GetExtension($filePath).ToLower()
@@ -570,32 +682,40 @@ function Get-MimeType {
         '.ppt'  { return 'application/vnd.ms-powerpoint' }
         '.pptx' { return 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }
         '.zip'  { return 'application/zip' }
-        default { return 'application/octet-stream' } # Default for unknown or binary files.
+        default { return 'application/octet-stream' } 
     }
 }
 
-# Formats test results into Rich Text Format (RTF) with color coding for pass/fail.
+<#
+.SYNOPSIS
+    Format function.
+.DESCRIPTION
+    Handles logic related to Format.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Format-TestResultsAsRtf {
     param(
-        [array]$Results,
-        [int]$FontSize = 9
+        [array]$results,
+        [int]$fontSize = 9
     )
     $rtfBuilder = New-Object System.Text.StringBuilder
-    $halfPoints = $FontSize * 2
+    $halfPoints = $fontSize * 2
     $rtfBuilder.Append("{\rtf1\ansi\deff0{\fonttbl{\f0 Courier New;}}\fs$halfPoints")
-    # Define colors: \cf1=Black, \cf2=Green, \cf3=Red, \cf4=Orange (Warning)
     $rtfBuilder.Append('{\colortbl;\red0\green0\blue0;\red0\green128\blue0;\red255\green0\blue0;\red255\green165\blue0;}') | Out-Null
 
-    if (-not $Results -or $Results.Count -eq 0) {
+    if (-not $results -or $results.Count -eq 0) {
         $rtfBuilder.Append("\cf1 No tests were executed or no results were reported.") | Out-Null
     } else {
-        foreach ($result in $Results) {
-            $colorIndex = 1 # Default to black
+        foreach ($result in $results) {
+            $colorIndex = 1 
             switch ($result.Status) {
-                "PASS"   { $colorIndex = 2 } # Green
-                "FAIL"   { $colorIndex = 3 } # Red
-                "WARN"   { $colorIndex = 4 } # Orange
-                "ERROR"  { $colorIndex = 3 } # Red
+                "PASS"   { $colorIndex = 2 } 
+                "FAIL"   { $colorIndex = 3 } 
+                "WARN"   { $colorIndex = 4 } 
+                "ERROR"  { $colorIndex = 3 } 
             }
             $message = $result.Message.Replace('\', '\\').Replace('{', '\{').Replace('}', '\}')
             $rtfBuilder.Append("\cf$colorIndex [$($result.Status)] $message\par")
@@ -605,38 +725,65 @@ function Format-TestResultsAsRtf {
     return $rtfBuilder.ToString()
 }
 
-$script:testResults = @() # Initialize global test results array
+$script:testResults = @() 
 
-# --- Test Assertion Library ---
+<#
+.SYNOPSIS
+    Assert function.
+.DESCRIPTION
+    Handles logic related to Assert.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Assert-Equal {
-    param($Value, $Expected, $Message)
-    if ($Value -eq $Expected) {
-        $script:testResults.Add([PSCustomObject]@{ Status = 'PASS'; Message = "Value '$Value' equals expected '$Expected'." }) | Out-Null
+    param($value, $expected, $message)
+    if ($value -eq $expected) {
+        $script:testResults.Add([PSCustomObject]@{ Status = 'PASS'; Message = "Value '$value' equals expected '$expected'." }) | Out-Null
     } else {
-        $script:testResults.Add([PSCustomObject]@{ Status = 'FAIL'; Message = "Assertion Failed: Expected '$Expected', but got '$Value'. $Message" }) | Out-Null
+        $script:testResults.Add([PSCustomObject]@{ Status = 'FAIL'; Message = "Assertion Failed: Expected '$expected', but got '$value'. $message" }) | Out-Null
     }
 }
 
+<#
+.SYNOPSIS
+    Assert function.
+.DESCRIPTION
+    Handles logic related to Assert.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Assert-Contains {
-    param([string]$String, [string]$Substring, $Message)
-    if ($String -like "*$Substring*") {
+    param([string]$string, [string]$substring, $message)
+    if ($string -like "*$substring*") {
         $script:testResults.Add([PSCustomObject]@{ Status = 'PASS'; Message = "Value contains expected substring." }) | Out-Null
     } else {
-        $script:testResults.Add([PSCustomObject]@{ Status = 'FAIL'; Message = "Assertion Failed: Value does not contain expected substring. $Message" }) | Out-Null
+        $script:testResults.Add([PSCustomObject]@{ Status = 'FAIL'; Message = "Assertion Failed: Value does not contain expected substring. $message" }) | Out-Null
     }
 }
 
+<#
+.SYNOPSIS
+    Assert function.
+.DESCRIPTION
+    Handles logic related to Assert.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Assert-StatusIs {
-    param([int]$StatusCode, [int]$ExpectedStatus)
-    if ($StatusCode -eq $ExpectedStatus) {
-        $script:testResults.Add([PSCustomObject]@{ Status = 'PASS'; Message = "Status code is $ExpectedStatus." }) | Out-Null
+    param([int]$statusCode, [int]$expectedStatus)
+    if ($statusCode -eq $expectedStatus) {
+        $script:testResults.Add([PSCustomObject]@{ Status = 'PASS'; Message = "Status code is $expectedStatus." }) | Out-Null
     } else {
-        $script:testResults.Add([PSCustomObject]@{ Status = 'FAIL'; Message = "Assertion Failed: Expected status code $ExpectedStatus, but got $StatusCode." }) | Out-Null
+        $script:testResults.Add([PSCustomObject]@{ Status = 'FAIL'; Message = "Assertion Failed: Expected status code $expectedStatus, but got $statusCode." }) | Out-Null
     }
 }
-#endregion
 
-#region Data Management (History, Environments, Settings)
 
 $script:history = @()
 $script:isRepeating = $false
@@ -645,22 +792,43 @@ $script:currentRepeatIteration = 0
 $script:repeatSuccessCount = 0
 $script:repeatFailCount = 0
 
+<#
+.SYNOPSIS
+    Load function.
+.DESCRIPTION
+    Handles logic related to Load.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Load-History {
     if (Test-Path $historyFilePath) {
         try {
             $jsonContent = Get-Content -Path $historyFilePath -Raw
-            # Filter out any null entries that might be in the JSON array
             $script:history = ($jsonContent | ConvertFrom-Json -ErrorAction SilentlyContinue) | Where-Object { $_ -ne $null }
+#endregion
+#region Logging
             Write-Log "History loaded from $historyFilePath"
-        } catch { # Catch block for Load-History
+        } catch { 
             Write-Log "Could not load or parse history file: $($_.Exception.Message)" -Level Info
             $script:history = @()
         }
     }
 }
 
+<#
+.SYNOPSIS
+    Save function.
+.DESCRIPTION
+    Handles logic related to Save.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Save-History {
-    try { # Try block for Save-History
+    try { 
         $script:history | ConvertTo-Json -Depth 5 | Set-Content -Path $historyFilePath
     } catch {
         Write-Log "Failed to save history: $($_.Exception.Message)" -Level Debug
@@ -669,6 +837,16 @@ function Save-History {
 
 $script:globals = @{}
 
+<#
+.SYNOPSIS
+    Load function.
+.DESCRIPTION
+    Handles logic related to Load.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Load-Globals {
     if (Test-Path $globalsFilePath) {
         try {
@@ -683,6 +861,16 @@ function Load-Globals {
     }
 }
 
+<#
+.SYNOPSIS
+    Save function.
+.DESCRIPTION
+    Handles logic related to Save.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Save-Globals {
     try {
         $script:globals | ConvertTo-Json -Depth 10 | Out-File -FilePath $globalsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
@@ -694,12 +882,21 @@ function Save-Globals {
 $script:environments = @{}
 $script:activeEnvironment = "No Environment"
 
+<#
+.SYNOPSIS
+    Load function.
+.DESCRIPTION
+    Handles logic related to Load.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Load-Environments {
     if (Test-Path $environmentsFilePath) {
         try {
             $json = Get-Content -Path $environmentsFilePath -Raw
             $script:environments = $json | ConvertFrom-Json -AsHashtable -ErrorAction SilentlyContinue
-            # Decrypt sensitive fields
             foreach ($env in $script:environments.Values) {
                 if ($env.Authentication) {
                     foreach ($k in @('Value','Token','Password','ClientSecret','AccessToken','RefreshToken')) {
@@ -708,16 +905,25 @@ function Load-Environments {
                 }
             }
             Write-Log "Environments loaded from $environmentsFilePath" -Level Debug
-        } catch { # Catch block for Load-Environments
+        } catch { 
             Write-Log "Could not load or parse environments file: $($_.Exception.Message)" -Level Info
             $script:environments = @{}
         }
     }
 }
 
+<#
+.SYNOPSIS
+    Save function.
+.DESCRIPTION
+    Handles logic related to Save.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Save-Environments {
     try {
-        # Clone and Encrypt
         $jsonRaw = $script:environments | ConvertTo-Json -Depth 10
         $envCopy = $jsonRaw | ConvertFrom-Json -AsHashtable
         foreach ($env in $envCopy.Values) {
@@ -728,9 +934,8 @@ function Save-Environments {
             }
         }
         $json = $envCopy | ConvertTo-Json -Depth 10
-        # Use Out-File with a specific encoding to prevent BOM (Byte Order Mark) issues.
         $json | Out-File -FilePath $environmentsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
-    } catch { # Catch block for Save-Environments
+    } catch { 
         Write-Log "Failed to save environments: $($_.Exception.Message)" -Level Debug
     }
 }
@@ -740,9 +945,19 @@ $script:activeCollectionName = $null
 $script:activeCollectionNode = $null
 $script:activeCollectionVariables = @{}
 
+<#
+.SYNOPSIS
+    Ensure function.
+.DESCRIPTION
+    Handles logic related to Ensure.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Ensure-CollectionVariables {
-    param([array]$Items)
-    foreach ($item in ($Items | Where-Object { $_ -ne $null })) {
+    param([array]$items)
+    foreach ($item in ($items | Where-Object { $_ -ne $null })) {
         if ($item.Type -eq "Collection") {
             if (-not ($item.PSObject.Properties.Name -contains 'Variables')) {
                 $item | Add-Member -MemberType NoteProperty -Name 'Variables' -Value @{}
@@ -754,6 +969,16 @@ function Ensure-CollectionVariables {
     }
 }
 
+<#
+.SYNOPSIS
+    Load function.
+.DESCRIPTION
+    Handles logic related to Load.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Load-Collections {
     if (Test-Path $collectionsFilePath) {
         try {
@@ -764,13 +989,23 @@ function Load-Collections {
             if ($script:collections -and $script:collections -isnot [array]) { $script:collections = @($script:collections) }
             Ensure-CollectionVariables -Items $script:collections
             Write-Log "Collections loaded from $collectionsFilePath" -Level Debug
-        } catch { # Catch block for Load-Collections
+        } catch { 
             Write-Log "Could not load or parse collections file: $($_.Exception.Message)" -Level Info
             $script:collections = @()
         }
     }
 }
 
+<#
+.SYNOPSIS
+    Save function.
+.DESCRIPTION
+    Handles logic related to Save.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Save-Collections {
     try {
         $json = $script:collections | ConvertTo-Json -Depth 10
@@ -783,13 +1018,22 @@ function Save-Collections {
 
 $script:monitors = @()
 
+<#
+.SYNOPSIS
+    Load function.
+.DESCRIPTION
+    Handles logic related to Load.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Load-Monitors {
     if (Test-Path $monitorsFilePath) {
         try {
             $json = Get-Content -Path $monitorsFilePath -Raw
             $script:monitors = $json | ConvertFrom-Json
             if ($script:monitors -isnot [array]) { $script:monitors = @($script:monitors) }
-            # Migration for monitors saved without BodyType or RequestTimeoutSeconds
             foreach ($monitor in ($script:monitors | Where-Object { $_ -ne $null })) {
                 if ($monitor.Request) {
                     if (-not ($monitor.Request.PSObject.Properties.Name -contains 'BodyType')) {
@@ -802,11 +1046,9 @@ function Load-Monitors {
                         $monitor.Request | Add-Member -MemberType NoteProperty -Name 'Authentication' -Value @{ Type = "No Auth" }
                     }
                 }
-                # Migration for monitors missing the Alerts object or its properties
                 if (-not ($monitor.PSObject.Properties.Name -contains 'Alerts')) {
                     $monitor | Add-Member -MemberType NoteProperty -Name 'Alerts' -Value @{ OnFailure=$true; OnSlow=$false; ThresholdMs=1000; SendEmail=$false; EmailTo="" }
                 } else {
-                    # Ensure all sub-properties exist
                     if (-not ($monitor.Alerts.PSObject.Properties.Name -contains 'OnFailure'))   { $monitor.Alerts | Add-Member -MemberType NoteProperty -Name 'OnFailure' -Value $true }
                     if (-not ($monitor.Alerts.PSObject.Properties.Name -contains 'OnSlow'))      { $monitor.Alerts | Add-Member -MemberType NoteProperty -Name 'OnSlow' -Value $false }
                     if (-not ($monitor.Alerts.PSObject.Properties.Name -contains 'ThresholdMs')) { $monitor.Alerts | Add-Member -MemberType NoteProperty -Name 'ThresholdMs' -Value 1000 }
@@ -820,12 +1062,32 @@ function Load-Monitors {
     }
 }
 
+<#
+.SYNOPSIS
+    Save function.
+.DESCRIPTION
+    Handles logic related to Save.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Save-Monitors {
     $script:monitors | ConvertTo-Json -Depth 10 | Set-Content -Path $monitorsFilePath
 }
 
 $script:grpcHistory = @()
 
+<#
+.SYNOPSIS
+    Load function.
+.DESCRIPTION
+    Handles logic related to Load.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Load-GrpcHistory {
     if (Test-Path $grpcHistoryFilePath) {
         try {
@@ -838,6 +1100,16 @@ function Load-GrpcHistory {
     }
 }
 
+<#
+.SYNOPSIS
+    Save function.
+.DESCRIPTION
+    Handles logic related to Save.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Save-GrpcHistory {
     $script:grpcHistory | ConvertTo-Json -Depth 5 | Set-Content -Path $grpcHistoryFilePath
 }
@@ -891,7 +1163,7 @@ $script:defaultSettings = @{
     MonitorAlertSubjectTemplate = "API Alert: {MonitorName}"
     MonitorAlertBodyTemplate = "Monitor: {MonitorName}`r`nStatus: {Status}`r`nStatus Code: {StatusCode}`r`nURL: {Url}`r`nTime (ms): {TimeMs}`r`nMessage: {Message}`r`nTimestamp: {Timestamp}"
     MonitorAlertBodyForceHtml = $false
-    ProxyMode = "System" # System, Custom, None
+    ProxyMode = "System" 
     ProxyAddress = ""
     ProxyPort = 8080
     ProxyUser = ""
@@ -901,6 +1173,16 @@ $script:defaultSettings = @{
 $script:settings = $script:defaultSettings.Clone()
 
 
+<#
+.SYNOPSIS
+    Load function.
+.DESCRIPTION
+    Handles logic related to Load.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Load-Settings {
     if (Test-Path $settingsFilePath) {
         try {
@@ -912,7 +1194,6 @@ function Load-Settings {
         try {
             $loadedSettings = Get-Content -Path $settingsFilePath -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
 
-            # Merge settings from file, adding new keys if they exist in the file but not in the defaults.
             foreach ($key in $loadedSettings.PSObject.Properties.Name) {
                 if (-not $script:settings.ContainsKey($key)) {
                     $script:settings[$key] = $loadedSettings.$key
@@ -922,24 +1203,31 @@ function Load-Settings {
                 if ($script:settings.ContainsKey($key)) { $script:settings[$key] = $loadedSettings.$key }
             }            
             Write-Log "Settings loaded from $settingsFilePath"
-        } catch { # Catch block for Load-Settings
+        } catch { 
             Write-Log "Could not load or parse settings file: $($_.Exception.Message)" -Level Info
         }
     }
-    # Ensure all default settings are present in the loaded settings
     foreach ($key in $script:defaultSettings.Keys) {
         if (-not $script:settings.ContainsKey($key)) { $script:settings[$key] = $script:defaultSettings[$key] }
     }
-    # Validate critical settings to prevent crashes
     if ([int]$script:settings.ResponseFontSize -le 0) { $script:settings.ResponseFontSize = $script:defaultSettings.ResponseFontSize }
     if ([int]$script:settings.RequestTimeoutSeconds -le 0) { $script:settings.RequestTimeoutSeconds = $script:defaultSettings.RequestTimeoutSeconds }
 
-    # Decrypt SMTP Password if present
     if ($script:settings.MonitorSmtpPass) { $script:settings.MonitorSmtpPass = Unprotect-String $script:settings.MonitorSmtpPass }
     if ($script:settings.MonitorSmtpClientSecret) { $script:settings.MonitorSmtpClientSecret = Unprotect-String $script:settings.MonitorSmtpClientSecret }
     if ($script:settings.MonitorSmtpRefreshToken) { $script:settings.MonitorSmtpRefreshToken = Unprotect-String $script:settings.MonitorSmtpRefreshToken }
 }
 
+<#
+.SYNOPSIS
+    Save function.
+.DESCRIPTION
+    Handles logic related to Save.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Save-Settings {
     $settingsToSave = $script:settings.Clone()
     if ($settingsToSave.MonitorSmtpPass) { $settingsToSave.MonitorSmtpPass = Protect-String $settingsToSave.MonitorSmtpPass }
@@ -949,7 +1237,16 @@ function Save-Settings {
     $settingsToSave | ConvertTo-Json | Set-Content -Path $settingsFilePath
 }
 
-# Formats a byte count into a human-readable string (e.g., KB, MB, GB).
+<#
+.SYNOPSIS
+    Format function.
+.DESCRIPTION
+    Handles logic related to Format.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Format-Bytes {
     param([long]$bytes)
     if ($bytes -lt 0) { return "N/A" }
@@ -963,9 +1260,18 @@ function Format-Bytes {
     return "{0:N2} {1}" -f $size, $units[$i]
 }
 
-# Replaces placeholders like {{variableName}} in a string with values from the active environment.
+<#
+.SYNOPSIS
+    Substitute function.
+.DESCRIPTION
+    Handles logic related to Substitute.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Substitute-Variables {
-    param ([string]$InputString)
+    param ([string]$inputString)
     
     $activeEnvVars = $null
     if ($script:activeEnvironment -ne "No Environment" -and $script:environments.ContainsKey($script:activeEnvironment)) {
@@ -976,7 +1282,7 @@ function Substitute-Variables {
     }
 
     $maxDepth = 5
-    $currentString = $InputString
+    $currentString = $inputString
 
     for ($i = 0; $i -lt $maxDepth; $i++) {
         $previousString = $currentString
@@ -1000,67 +1306,124 @@ function Substitute-Variables {
     return $currentString
 }
 
-# Replaces {Placeholders} in alert templates with actual values.
+<#
+.SYNOPSIS
+    Format function.
+.DESCRIPTION
+    Handles logic related to Format.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Format-AlertTemplate {
     param(
-        [string]$Template,
-        [hashtable]$Data
+        [string]$template,
+        [hashtable]$data
     )
-    if ([string]::IsNullOrWhiteSpace($Template)) { return "" }
-    $result = $Template
-    foreach ($key in $Data.Keys) {
+    if ([string]::IsNullOrWhiteSpace($template)) { return "" }
+    $result = $template
+    foreach ($key in $data.Keys) {
         $token = "\{$key\}"
-        $result = $result -replace $token, [string]$Data[$key]
+        $result = $result -replace $token, [string]$data[$key]
     }
     return $result
 }
 
-# Simple heuristic to detect HTML content in email body.
+<#
+.SYNOPSIS
+    Test function.
+.DESCRIPTION
+    Handles logic related to Test.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Test-IsHtmlBody {
-    param([string]$Body)
-    if ([string]::IsNullOrWhiteSpace($Body)) { return $false }
-    return ($Body -match '<\s*(html|body|div|span|p|br|table|tr|td|a|b|i|strong|em|ul|ol|li)\b')
+    param([string]$body)
+    if ([string]::IsNullOrWhiteSpace($body)) { return $false }
+    return ($body -match '<\s*(html|body|div|span|p|br|table|tr|td|a|b|i|strong|em|ul|ol|li)\b')
 }
 
-# Factory function to create a standardized TableLayoutPanel for authentication details.
+<#
+.SYNOPSIS
+    New function.
+.DESCRIPTION
+    Handles logic related to New.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function New-AuthDetailTable {
+#endregion
+#region GUI Initialization and Layout
     $table = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Top'; ColumnCount = 2; AutoSize = $true; AutoSizeMode = 'GrowAndShrink' }
     $table.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
     $table.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
     return $table
 }
 
-# --- Encryption Helpers (DPAPI) ---
+<#
+.SYNOPSIS
+    Protect function.
+.DESCRIPTION
+    Handles logic related to Protect.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Protect-String {
-    param([string]$String)
-    if ([string]::IsNullOrEmpty($String)) { return $String }
+    param([string]$string)
+    if ([string]::IsNullOrEmpty($string)) { return $string }
     try {
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($String)
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($string)
         $encrypted = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
         return [Convert]::ToBase64String($encrypted)
-    } catch { return $String }
+    } catch { return $string }
 }
 
+<#
+.SYNOPSIS
+    Unprotect function.
+.DESCRIPTION
+    Handles logic related to Unprotect.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Unprotect-String {
-    param([string]$String)
-    if ([string]::IsNullOrEmpty($String)) { return $String }
+    param([string]$string)
+    if ([string]::IsNullOrEmpty($string)) { return $string }
     try {
-        $bytes = [Convert]::FromBase64String($String)
+        $bytes = [Convert]::FromBase64String($string)
         $decrypted = [System.Security.Cryptography.ProtectedData]::Unprotect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
         return [System.Text.Encoding]::UTF8.GetString($decrypted)
-    } catch { return $String } # Return original if decryption fails (e.g. plain text)
+    } catch { return $string } 
 }
 
-# Sends an email using SMTP XOAUTH2 (required for Gmail/Outlook Modern Auth).
+<#
+.SYNOPSIS
+    Send function.
+.DESCRIPTION
+    Handles logic related to Send.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Send-SmtpOAuth2 {
-    param($Server, $Port, $UseSsl, $From, $To, $Subject, $Body, $User, $AccessToken, [bool]$IsHtml = $false)
+    param($server, $port, $useSsl, $from, $to, $subject, $body, $user, $accessToken, [bool]$isHtml = $false)
     
     try {
-        $client = New-Object System.Net.Sockets.TcpClient($Server, $Port)
+        $client = New-Object System.Net.Sockets.TcpClient($server, $port)
         $stream = $client.GetStream()
-        if ($UseSsl) {
+        if ($useSsl) {
             $sslStream = New-Object System.Net.Security.SslStream($stream)
-            $sslStream.AuthenticateAsClient($Server)
+            $sslStream.AuthenticateAsClient($server)
             $stream = $sslStream
         }
         
@@ -1068,15 +1431,34 @@ function Send-SmtpOAuth2 {
         $writer = New-Object System.IO.StreamWriter($stream)
         $writer.AutoFlush = $true
         
+<#
+.SYNOPSIS
+    Read function.
+.DESCRIPTION
+    Handles logic related to Read.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
         function Read-Response { return $reader.ReadLine() }
+<#
+.SYNOPSIS
+    Send function.
+.DESCRIPTION
+    Handles logic related to Send.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
         function Send-Command { param($cmd) $writer.WriteLine($cmd) }
         
-        Read-Response | Out-Null # Banner
+        Read-Response | Out-Null 
         Send-Command "EHLO localhost"
         while($line = Read-Response) { if($line -match "^\d+ ") { break } }
         
-        # Auth XOAUTH2 construction: user=EMAIL^Aauth=Bearer TOKEN^A^A
-        $authStr = "user=$User`x01auth=Bearer $AccessToken`x01`x01"
+        $authStr = "user=$user`x01auth=Bearer $accessToken`x01`x01"
         $authBytes = [System.Text.Encoding]::ASCII.GetBytes($authStr)
         $authBase64 = [Convert]::ToBase64String($authBytes)
         
@@ -1084,22 +1466,34 @@ function Send-SmtpOAuth2 {
         $res = Read-Response
         if ($res -notmatch "^235") { throw "SMTP Auth Failed: $res" }
         
-        Send-Command "MAIL FROM: <$From>"; Read-Response | Out-Null
-        Send-Command "RCPT TO: <$To>"; Read-Response | Out-Null
+        Send-Command "MAIL FROM: <$from>"; Read-Response | Out-Null
+        Send-Command "RCPT TO: <$to>"; Read-Response | Out-Null
         Send-Command "DATA"; Read-Response | Out-Null
         
-        $contentType = if ($IsHtml) { "text/html; charset=utf-8" } else { "text/plain; charset=utf-8" }
-        $headers = "Subject: $Subject`r`nFrom: $From`r`nTo: $To`r`nMIME-Version: 1.0`r`nContent-Type: $contentType`r`n"
-        Send-Command "$headers`r`n$Body`r`n."
+        $contentType = if ($isHtml) { "text/html; charset=utf-8" } else { "text/plain; charset=utf-8" }
+        $headers = "Subject: $subject`r`nFrom: $from`r`nTo: $to`r`nMIME-Version: 1.0`r`nContent-Type: $contentType`r`n"
+        Send-Command "$headers`r`n$body`r`n."
         Read-Response | Out-Null
         Send-Command "QUIT"
         $client.Close()
     } catch { throw $_ }
 }
 
+<#
+.SYNOPSIS
+    Refresh function.
+.DESCRIPTION
+    Handles logic related to Refresh.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Refresh-SmtpToken {
     if (-not $script:settings.MonitorSmtpRefreshToken -or -not $script:settings.MonitorSmtpTokenEndpoint) { return }
     try {
+#endregion
+#region Logging
         Write-Log "Refreshing SMTP OAuth2 Token..." -Level Info
         $body = @{
             grant_type    = "refresh_token"
@@ -1107,12 +1501,16 @@ function Refresh-SmtpToken {
             client_id     = $script:settings.MonitorSmtpClientId
             client_secret = $script:settings.MonitorSmtpClientSecret
         }
+#endregion
+#region API Execution
         $response = Invoke-RestMethod -Uri $script:settings.MonitorSmtpTokenEndpoint -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
         
         $script:settings.MonitorSmtpPass = $response.access_token
         if ($response.refresh_token) { $script:settings.MonitorSmtpRefreshToken = $response.refresh_token }
         if ($response.expires_in) { $script:settings.MonitorSmtpTokenExpiry = ([DateTime]::UtcNow).AddSeconds([int]$response.expires_in).ToString("o") }
         Save-Settings
+#endregion
+#region Logging
         Write-Log "SMTP Token Refreshed." -Level Info
     } catch {
         Write-Log "SMTP Token Refresh Failed: $($_.Exception.Message)" -Level Info
@@ -1120,20 +1518,29 @@ function Refresh-SmtpToken {
     }
 }
 
-#endregion
 
-#region UI Windows (Settings, Main Form)
 
-# --- Simple Variables Editor (key=value) ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-VariablesEditor {
     param(
+#endregion
+#region GUI Initialization and Layout
         [System.Windows.Forms.Form]$parentForm,
-        [string]$Title,
-        [hashtable]$Variables
+        [string]$title,
+        [hashtable]$variables
     )
 
     $form = New-Object System.Windows.Forms.Form -Property @{
-        Text          = $Title
+        Text          = $title
         Size          = New-Object System.Drawing.Size(600, 500)
         StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
         BackColor     = $script:Theme.FormBackground
@@ -1154,8 +1561,8 @@ function Show-VariablesEditor {
     $lblHint = New-Label -Text "Enter variables as key=value (one per line)." -Property @{ AutoSize = $true }
     $txtVars = New-TextBox -Multiline $true -Property @{ Dock = 'Fill'; Font = New-Object System.Drawing.Font("Courier New", 9); ScrollBars = 'Vertical' }
 
-    if ($Variables) {
-        $lines = $Variables.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Key)=$($_.Value)" }
+    if ($variables) {
+        $lines = $variables.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Key)=$($_.Value)" }
         $txtVars.Text = $lines -join [System.Environment]::NewLine
     }
 
@@ -1168,10 +1575,16 @@ function Show-VariablesEditor {
             }
         }
         $form.Tag = $newVars
+#endregion
+#region Logging
         $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
         $form.Close()
     }
     $btnCancel = New-Button -Text "Cancel" -Style 'Secondary' -Property @{ Width = 100; Height = 32 } -OnClick {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         $form.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
         $form.Close()
     }
@@ -1182,6 +1595,10 @@ function Show-VariablesEditor {
     $layout.Controls.Add($buttons, 0, 2)
 
     $form.Controls.Add($layout)
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $result = $form.ShowDialog($parentForm)
     return [PSCustomObject]@{
         Result    = $result
@@ -1189,16 +1606,27 @@ function Show-VariablesEditor {
     }
 }
 
-# --- REFACTORED: Environment Editor Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-EnvironmentEditor {
     param(
+#endregion
+#region GUI Initialization and Layout
         [System.Windows.Forms.Form]$parentForm,
-        [string]$EnvironmentName,
-        [hashtable]$EnvironmentData
+        [string]$environmentName,
+        [hashtable]$environmentData
     )
 
     $editorForm = New-Object System.Windows.Forms.Form -Property @{
-        Text          = "Edit Environment: $EnvironmentName"
+        Text          = "Edit Environment: $environmentName"
         Size          = New-Object System.Drawing.Size(700, 600)
         StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
         FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::Sizable
@@ -1206,96 +1634,104 @@ function Show-EnvironmentEditor {
         BackColor     = $script:Theme.FormBackground
     }
 
-    # --- Main Layout: Tab Control ---
     $editorTabControl = New-Object System.Windows.Forms.TabControl -Property @{ Dock = 'Fill' }
     $editorTabControl.Font = New-Object System.Drawing.Font($editorTabControl.Font.FontFamily, 10)
 
-    # --- URL Panel (at the top, outside tabs) ---
     $panelUrl = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Top'; AutoSize = $true; ColumnCount = 2; Padding = [System.Windows.Forms.Padding]::new(5) }
     $panelUrl.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $panelUrl.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
     $labelUrl = New-Label -Text "Base URL:" -Property @{ AutoSize = $true; Anchor = 'Left'; Margin = [System.Windows.Forms.Padding]::new(0, 5, 0, 0) }
-    $textUrl = New-TextBox -Property @{ Dock = 'Fill'; Text = $EnvironmentData.Url }
+    $textUrl = New-TextBox -Property @{ Dock = 'Fill'; Text = $environmentData.Url }
     $panelUrl.BackColor = $script:Theme.GroupBackground
     $panelUrl.Controls.Add($labelUrl, 0, 0); $panelUrl.Controls.Add($textUrl, 1, 0)
 
-    # --- Headers Tab ---
     $tabHeaders = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Headers"; Padding = [System.Windows.Forms.Padding]::new(5) }
-    $textHeaders = New-TextBox -Multiline $true -Property @{ Dock = 'Fill'; Text = $EnvironmentData.Headers; Font = New-Object System.Drawing.Font("Courier New", 9) }
+    $textHeaders = New-TextBox -Multiline $true -Property @{ Dock = 'Fill'; Text = $environmentData.Headers; Font = New-Object System.Drawing.Font("Courier New", 9) }
     $tabHeaders.Controls.Add($textHeaders)
 
-    # --- Variables Tab ---
     $tabVars = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Variables (key=value)"; Padding = [System.Windows.Forms.Padding]::new(5) }
     $textVars = New-TextBox -Multiline $true -Property @{ Dock = 'Fill'; Font = New-Object System.Drawing.Font("Courier New", 9) }
-    $varStrings = $EnvironmentData.Variables.GetEnumerator() | ForEach-Object { "$($_.Name)=$($_.Value)" }
+    $varStrings = $environmentData.Variables.GetEnumerator() | ForEach-Object { "$($_.Name)=$($_.Value)" }
     $textVars.Text = $varStrings -join [System.Environment]::NewLine
     $tabVars.Controls.Add($textVars)
 
-    # --- Authentication Tab ---
-    $authResult = New-AuthPanel -AuthData $EnvironmentData.Authentication
+    $authResult = New-AuthPanel -AuthData $environmentData.Authentication
     $tabAuth = $authResult.Tab
 
     $editorTabControl.TabPages.AddRange(@($tabHeaders, $tabAuth, $tabVars))
 
-    # --- Bottom Panel for Save/Cancel ---
     $panelBottom = New-Object System.Windows.Forms.Panel -Property @{ Dock = 'Bottom'; Height = 40; Padding = [System.Windows.Forms.Padding]::new(5) }
     $btnSave = New-Button -Text "Save" -Style 'Primary' -Property @{ Dock = 'Right'; Width = 100 } -OnClick {
-        # Collect data from controls and update the original hashtable
-        $EnvironmentData.Url = $textUrl.Text
-        $EnvironmentData.Headers = $textHeaders.Text
+        $environmentData.Url = $textUrl.Text
+        $environmentData.Headers = $textHeaders.Text
         
-        # Collect Authentication details by calling the helper on the auth panel
-        $EnvironmentData.Authentication = & $authResult.GetAuthData
+        $environmentData.Authentication = & $authResult.GetAuthData
         
-        # Parse variables back into a hashtable
         $newVars = @{}
         $textVars.Lines | ForEach-Object {
             if ($_ -match '^\s*([^=]+?)\s*=(.*)$') {
                 $newVars[$matches[1].Trim()] = $matches[2].Trim()
             }
         }
-        $EnvironmentData.Variables = $newVars
+        $environmentData.Variables = $newVars
 
+#endregion
+#region Logging
         $editorForm.DialogResult = [System.Windows.Forms.DialogResult]::OK
+#endregion
+#region GUI Initialization and Layout
         $editorForm.Close()
     }
     $btnCancel = New-Button -Text "Cancel" -Style 'Secondary' -Property @{ Dock = 'Right'; Width = 100 } -OnClick {
+#endregion
+#region Logging
         $editorForm.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+#endregion
+#region GUI Initialization and Layout
         $editorForm.Close()
     }
-    $panelBottom.Controls.AddRange(@($btnCancel, $btnSave)) # Add in reverse for right-docking
+    $panelBottom.Controls.AddRange(@($btnCancel, $btnSave)) 
 
     $editorForm.Controls.AddRange(@($editorTabControl, $panelUrl, $panelBottom))
+#endregion
+#region Logging
     return $editorForm.ShowDialog($parentForm)
 }
 
-# --- Reusable function to create a complete, self-contained Authentication Panel ---
+<#
+.SYNOPSIS
+    New function.
+.DESCRIPTION
+    Handles logic related to New.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function New-AuthPanel {
     param (
-        [object]$AuthData # Pre-populate with this data
+        [object]$authData 
     )
 
+#endregion
+#region GUI Initialization and Layout
     $tabAuth = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Authentication"; Padding = [System.Windows.Forms.Padding]::new(5) }
 
-    # Main Layout: Changed Column 0 to Fixed 140px to match inner tables
     $authLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Fill'; ColumnCount = 2; RowCount = 2 }
     [void]$authLayout.ColumnStyles.Add( (New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)) )
     [void]$authLayout.ColumnStyles.Add( (New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)) )
     [void]$authLayout.RowStyles.Add(    (New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize)) )
     [void]$authLayout.RowStyles.Add(    (New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100)) )
 
-    # Updated Label Properties for better vertical alignment (Top Margin 5)
     $lblProp = @{ AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'; Margin=[System.Windows.Forms.Padding]::new(3,5,5,0) }
 
     $labelAuthType = New-Label -Text "Type:" -Property $lblProp
     
-    # Panel to hold ComboBox and Clear button
     $panelAuthType = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Fill'; FlowDirection = 'LeftToRight'; AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0); Padding = [System.Windows.Forms.Padding]::new(0) }
 
     $script:comboAuthType = New-Object System.Windows.Forms.ComboBox -Property @{ DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList; Width = 200 }
     $script:comboAuthType.Items.AddRange(@("No Auth", "API Key", "Bearer Token", "Basic Auth", "Auth2", "Client Certificate"))
 
-    # Clear Button
     $btnClearAuth = New-Button -Text "Clear" -Style 'Secondary' -Property @{ Width = 80; Height = $script:comboAuthType.Height + 4; Margin = [System.Windows.Forms.Padding]::new(5,0,0,0) } -OnClick {
         switch ($script:comboAuthType.SelectedItem) {
             "API Key"      { $script:textApiKeyName.Text = ""; $script:textApiKeyValue.Text = "" }
@@ -1327,14 +1763,12 @@ function New-AuthPanel {
     $authLayout.Controls.AddRange(@($labelAuthType, $panelAuthType))
     $authLayout.Controls.Add($script:panelAuthDetails, 0, 1); $authLayout.SetColumnSpan($script:panelAuthDetails, 2)
 
-    # --- Bearer Token Panel ---
     $script:bearerTable = New-AuthDetailTable
     $script:textBearerToken = New-TextBox -Property @{ Dock = 'Fill' }
     
     [void]$script:bearerTable.Controls.Add((New-Label -Text "Token:" -Property $lblProp), 0, 0)
     [void]$script:bearerTable.Controls.Add($script:textBearerToken, 1, 0)
 
-    # --- Basic Auth Panel ---
     $script:basicTable = New-AuthDetailTable
     $script:textBasicUser = New-TextBox -Property @{ Dock = 'Fill' }
     $script:textBasicPass = New-TextBox -Property @{ Dock = 'Fill'; UseSystemPasswordChar = $true }
@@ -1344,7 +1778,6 @@ function New-AuthPanel {
     [void]$script:basicTable.Controls.Add((New-Label -Text "Password:" -Property $lblProp), 0, 1)
     [void]$script:basicTable.Controls.Add($script:textBasicPass, 1, 1)
 
-    # --- API Key Panel ---
     $script:apiKeyTable = New-AuthDetailTable
     $script:textApiKeyName  = New-TextBox -Property @{ Dock = 'Fill' }
     $script:textApiKeyValue = New-TextBox -Property @{ Dock = 'Fill' }
@@ -1358,7 +1791,6 @@ function New-AuthPanel {
     [void]$script:apiKeyTable.Controls.Add((New-Label -Text "Add to:" -Property $lblProp), 0, 2)
     [void]$script:apiKeyTable.Controls.Add($script:comboApiKeyAddTo, 1, 2)
 
-    # --- Auth2 Panel ---
     $script:auth2Table = New-AuthDetailTable
     $script:textAuth2ClientId = New-TextBox -Property @{ Dock = 'Fill' }
     $script:textAuth2ClientSecret = New-TextBox -Property @{ Dock = 'Fill'; UseSystemPasswordChar = $true }
@@ -1379,16 +1811,22 @@ function New-AuthPanel {
         }
 
         try {
+#endregion
+#region Logging
             Write-Log "Attempting to get Auth2 token from $tokenEndpoint" -Level Info
             $body = @{ grant_type="client_credentials"; client_id=$clientId; client_secret=$clientSecret }
             if ($scope) { $body.scope = $scope }
 
+#endregion
+#region API Execution
             $tokenResponse = Invoke-RestMethod -Uri $tokenEndpoint -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
 
             $script:textAuth2AccessToken.Text = $tokenResponse.access_token
             $script:textAuth2RefreshToken.Text = $tokenResponse.refresh_token
             $script:textAuth2ExpiresIn.Text = if ($tokenResponse.expires_in) { "$($tokenResponse.expires_in) seconds" } else { "N/A" }
             if ($tokenResponse.expires_in) { $script:textAuth2AccessToken.Tag = ([DateTime]::UtcNow).AddSeconds([int]$tokenResponse.expires_in) }
+#endregion
+#region GUI Initialization and Layout
             [System.Windows.Forms.MessageBox]::Show("Access Token obtained!", "Success", "OK", "Information")
         } catch {
             [System.Windows.Forms.MessageBox]::Show("Failed to get token: $($_.Exception.Message)", "Error", "OK", "Error")
@@ -1422,18 +1860,24 @@ function New-AuthPanel {
                         $tokenEndpoint = $script:textAuth2TokenEndpoint.Text
                         $clientSecret = $script:textAuth2ClientSecret.Text
                         $body = @{ grant_type="authorization_code"; code=$code; redirect_uri=$redirectUri; client_id=$clientId; client_secret=$clientSecret }
+#endregion
+#region API Execution
                         $tokenResponse = Invoke-RestMethod -Uri $tokenEndpoint -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
                         
                         $script:textAuth2AccessToken.Text = $tokenResponse.access_token
                         $script:textAuth2RefreshToken.Text = $tokenResponse.refresh_token
                         $script:textAuth2ExpiresIn.Text = if ($tokenResponse.expires_in) { "$($tokenResponse.expires_in) seconds" } else { "N/A" }
                         if ($tokenResponse.expires_in) { $script:textAuth2AccessToken.Tag = ([DateTime]::UtcNow).AddSeconds([int]$tokenResponse.expires_in) }
+#endregion
+#region GUI Initialization and Layout
                         [System.Windows.Forms.MessageBox]::Show("Access Token obtained!", "Success", "OK", "Information")
                     } catch { [System.Windows.Forms.MessageBox]::Show("Failed to exchange code: $($_.Exception.Message)", "Error", "OK", "Error") }
                 }
             }
         })
         $wb.Navigate($authUrl)
+#endregion
+#region Logging
         $browserForm.ShowDialog()
     }
 
@@ -1454,6 +1898,8 @@ function New-AuthPanel {
     [void]$script:auth2Table.Controls.Add((New-Label -Text "Scope:" -Property $lblProp), 0, 5)
     [void]$script:auth2Table.Controls.Add($script:textAuth2Scope, 1, 5)
     
+#endregion
+#region GUI Initialization and Layout
     $btnPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Fill'; AutoSize=$true }
     $script:btnGetAuth2Token.Width = 100; $script:btnGetAuth2CodeToken.Width = 140
     $btnPanel.Controls.Add($script:btnGetAuth2Token); $btnPanel.Controls.Add($script:btnGetAuth2CodeToken)
@@ -1466,7 +1912,6 @@ function New-AuthPanel {
     [void]$script:auth2Table.Controls.Add((New-Label -Text "Expires In:" -Property $lblProp), 0, 9)
     [void]$script:auth2Table.Controls.Add($script:textAuth2ExpiresIn, 1, 9)
 
-    # --- Client Certificate Panel ---
     $script:certTable = New-AuthDetailTable
     $script:comboCertSource = New-Object System.Windows.Forms.ComboBox -Property @{ DropDownStyle = 'DropDownList'; Dock = 'Fill' }
     $script:comboCertSource.Items.AddRange(@("PFX File", "User Store"))
@@ -1475,13 +1920,21 @@ function New-AuthPanel {
     $script:panelCertFile = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Fill'; AutoSize=$true; FlowDirection='LeftToRight'; Margin=[System.Windows.Forms.Padding]::new(0) }
     $script:textCertPath = New-TextBox -Property @{ Width=200 }
     $script:btnBrowseCert = New-Button -Text "..." -Style 'Secondary' -Property @{ Width=30; Height=23; Margin=[System.Windows.Forms.Padding]::new(3,0,0,0) } -OnClick {
+#endregion
+#region Logging
         $ofd = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter="PFX Files (*.pfx;*.p12)|*.pfx;*.p12|All Files (*.*)|*.*" }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $script:textCertPath.Text = $ofd.FileName }
     }
     $script:panelCertFile.Controls.AddRange(@($script:textCertPath, $script:btnBrowseCert))
     
     $script:textCertPass = New-TextBox -Property @{ Dock='Fill'; UseSystemPasswordChar=$true }
     
+#endregion
+#region GUI Initialization and Layout
     $script:panelCertStore = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Fill'; AutoSize=$true; FlowDirection='LeftToRight'; Margin=[System.Windows.Forms.Padding]::new(0) }
     $script:textCertThumb = New-TextBox -Property @{ Width=200; ReadOnly=$false; PlaceholderText="Thumbprint" }
     $script:btnSelectCert = New-Button -Text "Select" -Style 'Secondary' -Property @{ Width=60; Height=23; Margin=[System.Windows.Forms.Padding]::new(3,0,0,0) } -OnClick {
@@ -1511,40 +1964,37 @@ function New-AuthPanel {
         $script:lblCertPath.Visible = $isPfx; $script:panelCertFile.Visible = $isPfx; $script:lblCertPass.Visible = $isPfx; $script:textCertPass.Visible = $isPfx
         $script:lblCertThumb.Visible = (-not $isPfx); $script:panelCertStore.Visible = (-not $isPfx)
     })
-    # Trigger initial visibility
     $script:comboCertSource.SelectedIndex = 0; $script:lblCertThumb.Visible = $false; $script:panelCertStore.Visible = $false
 
-    # Populate Data if Exists
-    if ($AuthData) {
-        $script:comboAuthType.SelectedItem = $AuthData.Type
-        switch ($AuthData.Type) {
-            "API Key"      { $script:textApiKeyName.Text = $AuthData.Key; $script:textApiKeyValue.Text = $AuthData.Value; $script:comboApiKeyAddTo.SelectedItem = $AuthData.AddTo }
-            "Bearer Token" { $script:textBearerToken.Text = $AuthData.Token }
-            "Basic Auth"   { $script:textBasicUser.Text = $AuthData.Username; $script:textBasicPass.Text = $AuthData.Password }
+    if ($authData) {
+        $script:comboAuthType.SelectedItem = $authData.Type
+        switch ($authData.Type) {
+            "API Key"      { $script:textApiKeyName.Text = $authData.Key; $script:textApiKeyValue.Text = $authData.Value; $script:comboApiKeyAddTo.SelectedItem = $authData.AddTo }
+            "Bearer Token" { $script:textBearerToken.Text = $authData.Token }
+            "Basic Auth"   { $script:textBasicUser.Text = $authData.Username; $script:textBasicPass.Text = $authData.Password }
             "Auth2"        {
-                $script:textAuth2ClientId.Text = $AuthData.ClientId
-                $script:textAuth2ClientSecret.Text = $AuthData.ClientSecret
-                $script:textAuth2AuthEndpoint.Text = $AuthData.AuthEndpoint
-                $script:textAuth2RedirectUri.Text = $AuthData.RedirectUri
-                $script:textAuth2TokenEndpoint.Text = $AuthData.TokenEndpoint
-                $script:textAuth2Scope.Text = $AuthData.Scope
-                $script:textAuth2AccessToken.Text = $AuthData.AccessToken
-                $script:textAuth2RefreshToken.Text = $AuthData.RefreshToken
-                $script:textAuth2ExpiresIn.Text = $AuthData.ExpiresIn
-                $script:textAuth2AccessToken.Tag = $AuthData.TokenExpiryTimestamp
+                $script:textAuth2ClientId.Text = $authData.ClientId
+                $script:textAuth2ClientSecret.Text = $authData.ClientSecret
+                $script:textAuth2AuthEndpoint.Text = $authData.AuthEndpoint
+                $script:textAuth2RedirectUri.Text = $authData.RedirectUri
+                $script:textAuth2TokenEndpoint.Text = $authData.TokenEndpoint
+                $script:textAuth2Scope.Text = $authData.Scope
+                $script:textAuth2AccessToken.Text = $authData.AccessToken
+                $script:textAuth2RefreshToken.Text = $authData.RefreshToken
+                $script:textAuth2ExpiresIn.Text = $authData.ExpiresIn
+                $script:textAuth2AccessToken.Tag = $authData.TokenExpiryTimestamp
             }
             "Client Certificate" {
-                $script:comboCertSource.SelectedItem = $AuthData.Source
-                $script:textCertPath.Text = $AuthData.Path
-                $script:textCertPass.Text = $AuthData.Password
-                $script:textCertThumb.Text = $AuthData.Thumbprint
+                $script:comboCertSource.SelectedItem = $authData.Source
+                $script:textCertPath.Text = $authData.Path
+                $script:textCertPass.Text = $authData.Password
+                $script:textCertThumb.Text = $authData.Thumbprint
             }
         }
     } else {
         $script:comboAuthType.SelectedIndex = 0
     }
 
-    # Switch Logic
     $switchPanel = {
         $script:panelAuthDetails.Controls.Clear()
         switch ($script:comboAuthType.SelectedItem) {
@@ -1558,7 +2008,7 @@ function New-AuthPanel {
     $script:comboAuthType.Add_SelectedIndexChanged($switchPanel)
     $tabAuth.Controls.Add($authLayout)
 
-    & $switchPanel # Initial render
+    & $switchPanel 
 
     $getAuthData = {
         $details = @{ Type = $script:comboAuthType.SelectedItem }
@@ -1605,7 +2055,16 @@ function New-AuthPanel {
         ComboCertSource = $script:comboCertSource
     }
 }
-# --- Monitor Email Settings Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-MonitorEmailSettings {
     param($parentForm)
     $form = New-Object System.Windows.Forms.Form -Property @{ Text="Email Alert Configuration"; Size=New-Object System.Drawing.Size(700, 750); StartPosition="CenterParent" }
@@ -1641,7 +2100,6 @@ function Show-MonitorEmailSettings {
     $txtPass = New-TextBox -Property @{ Text=$script:settings.MonitorSmtpPass; Width=500; Height=25; UseSystemPasswordChar=$true }
     $layout.Controls.Add($txtPass)
 
-    # OAuth2 Specific Fields
     $panelOAuth = New-Object System.Windows.Forms.Panel -Property @{ AutoSize=$true; Visible=$false }
     $layoutOAuth = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Fill'; FlowDirection='TopDown'; AutoSize=$true; WrapContents=$false; Padding=[System.Windows.Forms.Padding]::new(0,10,0,0) }
     
@@ -1685,7 +2143,6 @@ function Show-MonitorEmailSettings {
     })
     if ($comboAuth.SelectedItem -eq "OAuth2") { $lblPass.Text = "Access Token:"; $panelOAuth.Visible = $true }
 
-    # Alert Email Template
     $grpTemplate = New-Object System.Windows.Forms.GroupBox -Property @{ Text="Alert Email Template"; AutoSize=$true; Width=600; Margin=[System.Windows.Forms.Padding]::new(0,15,0,0) }
     $tmplLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; AutoSize=$true; Padding=[System.Windows.Forms.Padding]::new(5) }
     $tmplLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
@@ -1717,7 +2174,6 @@ function Show-MonitorEmailSettings {
     $btnPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ AutoSize=$true; FlowDirection='LeftToRight'; Padding=[System.Windows.Forms.Padding]::new(5); WrapContents=$false }
 
     $btnSave = New-Button -Text "Save Settings" -Property @{ Width=140; Height=35; Margin=[System.Windows.Forms.Padding]::new(0,0,10,0) } -OnClick {
-        # ... (keep existing save logic) ...
         $script:settings.MonitorSmtpServer = $txtServer.Text
         $script:settings.MonitorSmtpPort = [int]$txtPort.Text
         $script:settings.MonitorSmtpUseSsl = $chkSsl.Checked
@@ -1736,9 +2192,7 @@ function Show-MonitorEmailSettings {
         $form.Close()
     }
 
-    # FIX: Increased width to 160 to show full text
     $btnTest = New-Button -Text "Test Connection" -Property @{ Width=160; Height=35; Margin=[System.Windows.Forms.Padding]::new(10,0,0,0) } -OnClick {
-        # ... (keep existing test logic) ...
          $server = $txtServer.Text
         $port = [int]$txtPort.Text
         $ssl = $chkSsl.Checked
@@ -1776,19 +2230,40 @@ function Show-MonitorEmailSettings {
     $grpActions.Controls.Add($btnPanel)
     $layout.Controls.Add($grpActions)
     $form.Controls.Add($layout)
+#endregion
+#region Logging
     $form.ShowDialog($parentForm)
 }
 
-# --- Monitor Chart Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-MonitorChartWindow {
+#endregion
+#region GUI Initialization and Layout
     param($parentForm)
     
+#endregion
+#region Logging
     if (-not (Test-Path $monitorLogFilePath)) {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         [System.Windows.Forms.MessageBox]::Show("No monitor log file found.", "Info", "OK", "Information")
         return
     }
 
     try {
+#endregion
+#region GUI Initialization and Layout
         $chartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::Line
     } catch {
         [System.Windows.Forms.MessageBox]::Show("Charting assemblies not found. Please ensure .NET Framework 4.x is installed.", "Error", "OK", "Error")
@@ -1797,11 +2272,13 @@ function Show-MonitorChartWindow {
 
     $form = New-Object System.Windows.Forms.Form -Property @{ Text="Monitor Analytics"; Size=New-Object System.Drawing.Size(1000, 700); StartPosition="CenterParent" }
     
-    # Load Data
+#endregion
+#region Logging
     $data = Import-Csv $monitorLogFilePath | Select-Object @{N='Time';E={[DateTime]$_.Timestamp}}, MonitorName, @{N='Ms';E={[int]$_.TimeMs}}
     $monitors = $data | Select-Object -ExpandProperty MonitorName -Unique
 
-    # Controls
+#endregion
+#region GUI Initialization and Layout
     $panelTop = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Top'; AutoSize=$true; Padding=[System.Windows.Forms.Padding]::new(5) }
     $lblSel = New-Label -Text "Select Monitor:" -Property @{ AutoSize=$true; TextAlign='MiddleLeft'; Margin=[System.Windows.Forms.Padding]::new(0,6,0,0) }
     $comboMon = New-Object System.Windows.Forms.ComboBox -Property @{ Width=200; DropDownStyle='DropDownList'; Margin=[System.Windows.Forms.Padding]::new(3,3,10,3) }
@@ -1831,12 +2308,20 @@ function Show-MonitorChartWindow {
     if ($comboMon.Items.Count -gt 0) { $comboMon.SelectedIndex = 0 }
 
     $btnSaveImage = New-Button -Text "Save Image" -Property @{ AutoSize=$true } -OnClick {
+#endregion
+#region Logging
         $sfd = New-Object System.Windows.Forms.SaveFileDialog
         $sfd.Filter = "PNG Image|*.png|JPEG Image|*.jpg|Bitmap Image|*.bmp"
         $sfd.Title = "Save Chart Image"
         $sfd.FileName = "MonitorChart.png"
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
+#endregion
+#region GUI Initialization and Layout
                 $format = [System.Windows.Forms.DataVisualization.Charting.ChartImageFormat]::Png
                 if ($sfd.FileName.EndsWith(".jpg")) { $format = [System.Windows.Forms.DataVisualization.Charting.ChartImageFormat]::Jpeg }
                 elseif ($sfd.FileName.EndsWith(".bmp")) { $format = [System.Windows.Forms.DataVisualization.Charting.ChartImageFormat]::Bmp }
@@ -1851,11 +2336,24 @@ function Show-MonitorChartWindow {
 
     $panelTop.Controls.AddRange(@($lblSel, $comboMon, $btnSaveImage))
     $form.Controls.AddRange(@($chart, $panelTop))
+#endregion
+#region Logging
     $form.ShowDialog($parentForm)
 }
 
-# --- WebSocket Client Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-WebSocketClient {
+#endregion
+#region GUI Initialization and Layout
     param($parentForm)
     $wsForm = New-Object System.Windows.Forms.Form -Property @{ Text="WebSocket Client"; Size=New-Object System.Drawing.Size(750, 600); StartPosition="CenterParent"; BackColor = $script:Theme.FormBackground }
     
@@ -1865,25 +2363,61 @@ function Show-WebSocketClient {
     $btnConnect = New-Button -Text "Connect" -Style 'Primary' -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(6,3,3,3) }
     $btnDisconnect = New-Button -Text "Disconnect" -Property @{ AutoSize=$true; Enabled=$false; Margin=[System.Windows.Forms.Padding]::new(3) }
     
+#endregion
+#region Logging
     $btnSaveLog = New-Button -Text "Save Log" -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(12,3,3,3) } -OnClick {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         $sfd = New-Object System.Windows.Forms.SaveFileDialog -Property @{ Filter="Text Files (*.txt)|*.txt"; FileName="websocket_log.txt" }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $logBox.Text | Set-Content -Path $sfd.FileName }
     }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $btnLoadLog = New-Button -Text "Load Log" -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(3) } -OnClick {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         $ofd = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter="Text Files (*.txt)|*.txt" }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $logBox.Text = Get-Content -Path $ofd.FileName -Raw }
     }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $btnClearLog = New-Button -Text "Clear Log" -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(3) } -OnClick {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ([System.Windows.Forms.MessageBox]::Show("Clear WebSocket log?", "Confirm", "YesNo") -eq "Yes") {
             $logBox.Clear()
         }
     }
 
+#endregion
+#region GUI Initialization and Layout
     $lblStatus = New-Label -Text "Status: Disconnected" -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(10,6,0,0); ForeColor = [System.Drawing.Color]::DarkRed }
+#endregion
+#region Logging
     $topPanel.Controls.AddRange(@($lblUrl, $txtUrl, $btnConnect, $btnDisconnect, $btnSaveLog, $btnLoadLog, $btnClearLog, $lblStatus))
 
     $logBox = New-RichTextBox -ReadOnly $true -Property @{ Dock='Fill'; BackColor='White'; Font=New-Object System.Drawing.Font("Consolas", 9); BorderStyle='None' }
     
+#endregion
+#region GUI Initialization and Layout
     $bottomPanel = New-Object System.Windows.Forms.Panel -Property @{ Dock='Bottom'; Height=40; Padding=[System.Windows.Forms.Padding]::new(5) }
     $txtMsg = New-TextBox -Property @{ Dock='Fill' }
     $btnSend = New-Button -Text "Send" -Style 'Primary' -Property @{ Dock='Right'; Width=90; Enabled=$false }
@@ -1901,6 +2435,8 @@ function Show-WebSocketClient {
             $task = $ws.ConnectAsync($uri, [System.Threading.CancellationToken]::None)
             $task.Wait()
             if ($ws.State -eq 'Open') {
+#endregion
+#region Logging
                 $logBox.AppendText("[$([DateTime]::Now.ToString('HH:mm:ss'))] Connected to $($uri)`n")
                 $btnConnect.Enabled = $false; $btnDisconnect.Enabled = $true; $btnSend.Enabled = $true
                 $lblStatus.Text = "Status: Connected"
@@ -1953,13 +2489,32 @@ function Show-WebSocketClient {
         }
     })
 
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $wsForm.Controls.AddRange(@($logBox, $bottomPanel, $topPanel))
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $wsForm.ShowDialog($parentForm)
     if ($ws) { $ws.Dispose() }
 }
 
-# --- gRPC Client Window (Wrapper for grpcurl) ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-GrpcClient {
+#endregion
+#region GUI Initialization and Layout
     param($parentForm)
     Load-GrpcHistory
 
@@ -1967,7 +2522,6 @@ function Show-GrpcClient {
     
     $mainSplit = New-Object System.Windows.Forms.SplitContainer -Property @{ Dock='Fill'; Orientation='Vertical'; SplitterDistance=280; BackColor=$script:Theme.FormBackground }
 
-    # --- History Panel (Left) ---
     $historyGroup = New-Object System.Windows.Forms.GroupBox -Property @{ Text="History"; Dock='Fill'; Padding=[System.Windows.Forms.Padding]::new(10); BackColor=$script:Theme.GroupBackground }
     $historyLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=1; RowCount=2 }
     $historyLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
@@ -1986,7 +2540,6 @@ function Show-GrpcClient {
     $historyGroup.Controls.Add($historyLayout)
     $mainSplit.Panel1.Controls.Add($historyGroup)
 
-    # Populate History List
     foreach ($item in $script:grpcHistory) {
         $ts = Get-Date
         if ($item.Timestamp) {
@@ -1998,10 +2551,8 @@ function Show-GrpcClient {
         $listHistory.Items.Add("$($ts.ToString('HH:mm:ss')) | $($item.Method)")
     }
 
-    # --- Client Panel (Right) ---
     $split = New-Object System.Windows.Forms.SplitContainer -Property @{ Dock='Fill'; Orientation='Horizontal'; SplitterDistance=330; BackColor=$script:Theme.FormBackground }
     
-    # Input Panel
     $inputPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=6; Padding=[System.Windows.Forms.Padding]::new(8) }
     $inputPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $inputPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
@@ -2029,9 +2580,8 @@ function Show-GrpcClient {
         $txtOutput.Text = "Executing..."
         $hostAddr = $txtHost.Text
         $method = $txtMethod.Text
-        $json = $txtBody.Text.Replace('"', '\"') # Simple escape for cmd line
+        $json = $txtBody.Text.Replace('"', '\"') 
         
-        # Save to History
         $historyItem = [PSCustomObject]@{
             Timestamp = Get-Date
             Host = $hostAddr
@@ -2050,7 +2600,6 @@ function Show-GrpcClient {
         $argsList = @()
         if ($chkPlaintext.Checked) { $argsList += "-plaintext" }
         
-        # Add Headers
         if (-not [string]::IsNullOrWhiteSpace($txtHeaders.Text)) {
             foreach ($line in $txtHeaders.Text -split "`n") {
                 if ($line -match "^\s*(.+?):\s*(.+)$") {
@@ -2061,7 +2610,6 @@ function Show-GrpcClient {
 
         $argsList += "-d", "`"$json`"", $hostAddr, $method
         
-        # Resolve grpcurl path (check script dir first, then PATH)
         $grpCurlPath = "grpcurl"
         $localPath = Join-Path $scriptRoot "grpcurl.exe"
         if (Test-Path $localPath) {
@@ -2107,6 +2655,8 @@ function Show-GrpcClient {
             $txtOutput.Text = "Checking for latest grpcurl release..."
             [System.Windows.Forms.Application]::DoEvents()
             
+#endregion
+#region API Execution
             $latest = Invoke-RestMethod "https://api.github.com/repos/fullstorydev/grpcurl/releases/latest"
             $asset = $latest.assets | Where-Object { $_.name -match "windows_x86_64.zip" } | Select-Object -First 1
             
@@ -2114,11 +2664,17 @@ function Show-GrpcClient {
             
             $zipPath = Join-Path $env:TEMP $asset.name
             $txtOutput.Text += "`r`nDownloading $($asset.browser_download_url)..."
+#endregion
+#region GUI Initialization and Layout
             [System.Windows.Forms.Application]::DoEvents()
             
+#endregion
+#region API Execution
             Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
             
             $txtOutput.Text += "`r`nExtracting..."
+#endregion
+#region GUI Initialization and Layout
             [System.Windows.Forms.Application]::DoEvents()
             
             Expand-Archive -Path $zipPath -DestinationPath $scriptRoot -Force
@@ -2151,7 +2707,6 @@ function Show-GrpcClient {
     
     $mainSplit.Panel2.Controls.Add($split)
 
-    # History Selection Event
     $listHistory.Add_SelectedIndexChanged({
         if ($listHistory.SelectedIndex -ne -1) {
             $item = $script:grpcHistory[$listHistory.SelectedIndex]
@@ -2164,14 +2719,26 @@ function Show-GrpcClient {
     })
 
     $grpcForm.Controls.Add($mainSplit)
+#endregion
+#region Logging
     $grpcForm.ShowDialog($parentForm)
 }
 
-# --- Monitoring Dashboard Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-MonitoringDashboard {
+#endregion
+#region GUI Initialization and Layout
     param($parentForm)
 
-    # Check for charting assemblies
     try {
         $chartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::Line
     } catch {
@@ -2186,7 +2753,6 @@ function Show-MonitoringDashboard {
         BackColor = $script:Theme.FormBackground
     }
 
-    # --- Main Layout ---
     $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
         Dock = 'Fill'
         ColumnCount = 1
@@ -2197,7 +2763,6 @@ function Show-MonitoringDashboard {
     $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
     $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
     
-    # --- Toolbar ---
     $toolbar = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Fill'; AutoSize = $true; WrapContents = $true }
     $lblMonitorFilter = New-Label -Text "Monitor:" -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(0,6,5,0) }
     $comboMonitorFilter = New-Object System.Windows.Forms.ComboBox -Property @{ DropDownStyle='DropDownList'; Width=200; Margin=[System.Windows.Forms.Padding]::new(0,3,10,0) }
@@ -2210,14 +2775,23 @@ function Show-MonitoringDashboard {
     $btnSaveChart = New-Button -Text "Save Chart" -Style 'Secondary' -Property @{ Width=120; Height=32; Margin=[System.Windows.Forms.Padding]::new(5,0,0,0) }
     $toolbar.Controls.AddRange(@($lblMonitorFilter, $comboMonitorFilter, $lblFrom, $dtpFrom, $lblTo, $dtpTo, $btnRefresh, $btnExportData, $btnSaveChart))
 
-    # --- Dashboard Cards ---
     $dashboardCardsLayout = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Fill'; AutoScroll = $true; AutoSize=$true }
 
+<#
+.SYNOPSIS
+    New function.
+.DESCRIPTION
+    Handles logic related to New.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function New-DashboardCard {
-        param([string]$Title, [string]$InitialValue = "...")
+        param([string]$title, [string]$initialValue = "...")
         $card = New-Object System.Windows.Forms.Panel -Property @{ Size = New-Object System.Drawing.Size(180, 100); BackColor = $script:Theme.GroupBackground; Margin = [System.Windows.Forms.Padding]::new(10) }
-        $lblTitle = New-Label -Text $Title -Property @{ Dock = 'Top'; Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold); ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#6c757d"); TextAlign = 'MiddleCenter'; Height = 30 }
-        $lblValue = New-Label -Text $InitialValue -Property @{ Dock = 'Fill'; Font = New-Object System.Drawing.Font("Segoe UI", 22, [System.Drawing.FontStyle]::Bold); TextAlign = 'MiddleCenter' }
+        $lblTitle = New-Label -Text $title -Property @{ Dock = 'Top'; Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold); ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#6c757d"); TextAlign = 'MiddleCenter'; Height = 30 }
+        $lblValue = New-Label -Text $initialValue -Property @{ Dock = 'Fill'; Font = New-Object System.Drawing.Font("Segoe UI", 22, [System.Drawing.FontStyle]::Bold); TextAlign = 'MiddleCenter' }
         $card.Controls.AddRange(@($lblValue, $lblTitle))
         return [PSCustomObject]@{ Panel = $card; ValueLabel = $lblValue }
     }
@@ -2230,7 +2804,6 @@ function Show-MonitoringDashboard {
 
     $dashboardCardsLayout.Controls.AddRange(@($uptimeCard.Panel, $latencyCard.Panel, $totalRunsCard.Panel, $passedCard.Panel, $failedCard.Panel))
 
-    # --- Chart ---
     $chartGroup = New-Object System.Windows.Forms.GroupBox -Property @{ Text="Latency Over Time"; Dock='Fill'; Padding=[System.Windows.Forms.Padding]::new(10); BackColor=$script:Theme.GroupBackground }
     $chart = New-Object System.Windows.Forms.DataVisualization.Charting.Chart -Property @{ Dock='Fill' }
     $chartArea = New-Object System.Windows.Forms.DataVisualization.Charting.ChartArea
@@ -2245,9 +2818,20 @@ function Show-MonitoringDashboard {
     $chart.Series.Add($latencySeries)
     $chartGroup.Controls.Add($chart)
 
-    # --- Update Logic ---
     $script:filteredDashboardData = $null
+<#
+.SYNOPSIS
+    Update function.
+.DESCRIPTION
+    Handles logic related to Update.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Update-DashboardData {
+#endregion
+#region Logging
         if (-not (Test-Path $monitorLogFilePath)) {
             $uptimeCard.ValueLabel.Text = "N/A"; $latencyCard.ValueLabel.Text = "N/A"; $totalRunsCard.ValueLabel.Text = "N/A"; $passedCard.ValueLabel.Text = "N/A"; $failedCard.ValueLabel.Text = "N/A"
             $latencySeries.Points.Clear()
@@ -2256,7 +2840,6 @@ function Show-MonitoringDashboard {
         try {
             $allData = Import-Csv $monitorLogFilePath
             
-            # Populate filter dropdown
             $currentFilter = $comboMonitorFilter.SelectedItem
             $monitors = $allData | Select-Object -ExpandProperty MonitorName -Unique | Sort-Object
             $comboMonitorFilter.Items.Clear()
@@ -2264,13 +2847,11 @@ function Show-MonitoringDashboard {
             $comboMonitorFilter.Items.AddRange($monitors)
             if ($currentFilter -and $comboMonitorFilter.Items.Contains($currentFilter)) { $comboMonitorFilter.SelectedItem = $currentFilter } else { $comboMonitorFilter.SelectedIndex = 0 }
 
-            # Filter data based on selection
             $data = $allData
             if ($comboMonitorFilter.SelectedItem -ne "All Monitors") {
                 $data = $allData | Where-Object { $_.MonitorName -eq $comboMonitorFilter.SelectedItem }
             }
 
-            # Date filtering
             if ($dtpFrom.Checked) {
                 $data = $data | Where-Object { ([DateTime]$_.Timestamp) -ge $dtpFrom.Value.Date }
             }
@@ -2298,7 +2879,6 @@ function Show-MonitoringDashboard {
             elseif ($uptime -ge 0.95) { $uptimeCard.ValueLabel.ForeColor = [System.Drawing.Color]::Orange }
             else { $uptimeCard.ValueLabel.ForeColor = [System.Drawing.Color]::DarkRed }
 
-            # Update Chart
             $latencySeries.Points.Clear()
             $data | ForEach-Object {
                 $ts = [DateTime]$_.Timestamp
@@ -2320,15 +2900,25 @@ function Show-MonitoringDashboard {
 
     $btnExportData.Add_Click({
         if (-not $script:filteredDashboardData -or $script:filteredDashboardData.Count -eq 0) {
+#endregion
+#region GUI Initialization and Layout
             [System.Windows.Forms.MessageBox]::Show("There is no data to export.", "Info", "OK", "Information")
             return
         }
+#endregion
+#region Logging
         $sfd = New-Object System.Windows.Forms.SaveFileDialog
         $sfd.Filter = "CSV File (*.csv)|*.csv"
         $sfd.FileName = "monitor_data_export_$((Get-Date).ToString('yyyyMMdd')).csv"
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
                 $script:filteredDashboardData | Export-Csv -Path $sfd.FileName -NoTypeInformation -Encoding UTF8
+#endregion
+#region GUI Initialization and Layout
                 [System.Windows.Forms.MessageBox]::Show("Data exported successfully.", "Success", "OK", "Information")
             } catch {
                 [System.Windows.Forms.MessageBox]::Show("Failed to export data: $($_.Exception.Message)", "Error", "OK", "Error")
@@ -2337,12 +2927,20 @@ function Show-MonitoringDashboard {
     })
 
     $btnSaveChart.Add_Click({
+#endregion
+#region Logging
         $sfd = New-Object System.Windows.Forms.SaveFileDialog
         $sfd.Filter = "PNG Image|*.png|JPEG Image|*.jpg|Bitmap Image|*.bmp"
         $sfd.Title = "Save Chart Image"
         $sfd.FileName = "MonitorChart.png"
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
+#endregion
+#region GUI Initialization and Layout
                 $format = [System.Windows.Forms.DataVisualization.Charting.ChartImageFormat]::Png
                 if ($sfd.FileName.EndsWith(".jpg", [System.StringComparison]::OrdinalIgnoreCase)) { $format = [System.Windows.Forms.DataVisualization.Charting.ChartImageFormat]::Jpeg }
                 elseif ($sfd.FileName.EndsWith(".bmp", [System.StringComparison]::OrdinalIgnoreCase)) { $format = [System.Windows.Forms.DataVisualization.Charting.ChartImageFormat]::Bmp }
@@ -2355,20 +2953,34 @@ function Show-MonitoringDashboard {
         }
     })
 
-    # --- Assemble Form ---
     $mainLayout.Controls.Add($toolbar, 0, 0)
     $mainLayout.Controls.Add($dashboardCardsLayout, 0, 1)
     $mainLayout.Controls.Add($chartGroup, 0, 2)
     $dashboardForm.Controls.Add($mainLayout)
 
     $dashboardForm.Add_Load({ Update-DashboardData })
+#endregion
+#region Logging
     $dashboardForm.ShowDialog($parentForm)
 }
 
-# --- Report Customization Dialog ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-ReportCustomizationDialog {
+#endregion
+#region GUI Initialization and Layout
     param($parentForm)
 
+#endregion
+#region Logging
     $dialog = New-Object System.Windows.Forms.Form -Property @{
         Text = "Customize Report"
         Size = New-Object System.Drawing.Size(400, 500)
@@ -2378,6 +2990,8 @@ function Show-ReportCustomizationDialog {
         MinimizeBox = $false
     }
 
+#endregion
+#region GUI Initialization and Layout
     $layout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Fill'; Padding = [System.Windows.Forms.Padding]::new(10); ColumnCount = 1 }
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
     $layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
@@ -2387,7 +3001,11 @@ function Show-ReportCustomizationDialog {
     $chkSummaryCards = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Include Summary Cards"; Checked = $true; AutoSize = $true }
     $chkMonitorStats = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Include Monitor Statistics Table"; Checked = $true; AutoSize = $true }
     
+#endregion
+#region Logging
     $groupDetailedLog = New-Object System.Windows.Forms.GroupBox -Property @{ Text = "Detailed Log Columns"; Dock = 'Fill' }
+#endregion
+#region GUI Initialization and Layout
     $clbColumns = New-Object System.Windows.Forms.CheckedListBox -Property @{ Dock = 'Fill'; CheckOnClick = $true; BorderStyle = 'None' }
     
     $availableColumns = @("Timestamp", "MonitorName", "URL", "Success", "StatusCode", "TimeMs", "Message")
@@ -2395,23 +3013,37 @@ function Show-ReportCustomizationDialog {
     for ($i = 0; $i -lt $clbColumns.Items.Count; $i++) {
         $clbColumns.SetItemChecked($i, $true)
     }
+#endregion
+#region Logging
     $groupDetailedLog.Controls.Add($clbColumns)
 
+#endregion
+#region GUI Initialization and Layout
     $buttons = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ FlowDirection = 'RightToLeft'; Dock = 'Fill'; AutoSize = $true }
     $btnGenerate = New-Button -Text "Generate" -Style 'Primary' -Property @{ Width = 100; Height = 32 } -OnClick {
         $selectedColumns = @()
         foreach ($item in $clbColumns.CheckedItems) {
             $selectedColumns += $item
         }
+#endregion
+#region Logging
         $dialog.Tag = [PSCustomObject]@{
             IncludeSummaryCards = $chkSummaryCards.Checked
             IncludeMonitorStats = $chkMonitorStats.Checked
             DetailedLogColumns = $selectedColumns
         }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         $dialog.DialogResult = [System.Windows.Forms.DialogResult]::OK
         $dialog.Close()
     }
     $btnCancel = New-Button -Text "Cancel" -Style 'Secondary' -Property @{ Width = 100; Height = 32 } -OnClick {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         $dialog.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
         $dialog.Close()
     }
@@ -2423,6 +3055,10 @@ function Show-ReportCustomizationDialog {
     $layout.Controls.Add($buttons, 0, 3)
 
     $dialog.Controls.Add($layout)
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $result = $dialog.ShowDialog($parentForm)
 
     return [PSCustomObject]@{
@@ -2431,26 +3067,58 @@ function Show-ReportCustomizationDialog {
     }
 }
 
-# --- Report Generator Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-ReportGenerator {
+#endregion
+#region GUI Initialization and Layout
     param($parentForm)
     
+#endregion
+#region Logging
     if (-not (Test-Path $monitorLogFilePath)) {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         [System.Windows.Forms.MessageBox]::Show("No monitor log file found to generate report.", "Info", "OK", "Information")
         return
     }
 
-    # Show customization dialog
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $customization = Show-ReportCustomizationDialog -parentForm $parentForm
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     if ($customization.Result -ne [System.Windows.Forms.DialogResult]::OK) {
-        return # User cancelled
+        return 
     }
     $options = $customization.Options
 
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $sfd = New-Object System.Windows.Forms.SaveFileDialog
     $sfd.Filter = "HTML Report (*.html)|*.html"
     $sfd.FileName = "API_Test_Report_$((Get-Date).ToString('yyyyMMdd')).html"
     
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         try {
             $data = Import-Csv $monitorLogFilePath
@@ -2462,19 +3130,19 @@ function Show-ReportGenerator {
 <head>
 <title>API Test Report</title>
 <style>
-body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f4f4; }
-h1 { color: #333; border-bottom: 2px solid #0078d4; padding-bottom: 10px; }
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: 
+h1 { color: 
 .summary { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
-.card { border: 1px solid #ddd; padding: 20px; border-radius: 8px; background: white; min-width: 150px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-.card h3 { margin: 0 0 10px 0; font-size: 1em; color: #666; text-transform: uppercase; letter-spacing: 1px; }
-.card .value { font-size: 2em; font-weight: bold; color: #333; }
-.pass { color: #28a745; }
-.fail { color: #dc3545; }
+.card { border: 1px solid 
+.card h3 { margin: 0 0 10px 0; font-size: 1em; color: 
+.card .value { font-size: 2em; font-weight: bold; color: 
+.pass { color: 
+.fail { color: 
 table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
-th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; }
-th { background-color: #0078d4; color: white; font-weight: 600; }
+th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid 
+th { background-color: 
 tr:last-child td { border-bottom: none; }
-tr:hover { background-color: #f9f9f9; }
+tr:hover { background-color: 
 </style>
 </head>
 <body>
@@ -2550,14 +3218,25 @@ tr:hover { background-color: #f9f9f9; }
             $html | Set-Content -Path $sfd.FileName -Encoding UTF8
             Start-Process $sfd.FileName
         } catch {
+#endregion
+#region GUI Initialization and Layout
             [System.Windows.Forms.MessageBox]::Show("Failed to generate report: $($_.Exception.Message)", "Error", "OK", "Error")
         }
     }
 }
 
-# --- Monitor Editor Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-MonitorEditor {
-    param($Monitor)
+    param($monitor)
     $form = New-Object System.Windows.Forms.Form -Property @{
         Text          = "Edit Monitor"
         Size          = New-Object System.Drawing.Size(800, 850)
@@ -2568,7 +3247,6 @@ function Show-MonitorEditor {
         AutoScroll    = $false
     }
 
-    # Main layout
     $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
         Dock        = 'Top'
         ColumnCount = 1
@@ -2580,27 +3258,24 @@ function Show-MonitorEditor {
     $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
     $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
 
-    # --- General Settings Group ---
     $grpGeneral = New-Object System.Windows.Forms.GroupBox -Property @{ Text = "General"; Dock = 'Fill'; AutoSize = $true; Padding = [System.Windows.Forms.Padding]::new(10); Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 10) }
     $tblGeneral = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Fill'; ColumnCount = 2; AutoSize = $true }
     $tblGeneral.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $tblGeneral.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
 
     $lblName = New-Label -Text "Monitor Name:" -Property @{ AutoSize = $true; Anchor = 'Left'; TextAlign = 'MiddleLeft'; Margin = [System.Windows.Forms.Padding]::new(0, 3, 10, 3) }
-    $txtName = New-TextBox -Property @{ Text = $Monitor.Name; Dock = 'Fill' }
+    $txtName = New-TextBox -Property @{ Text = $monitor.Name; Dock = 'Fill' }
 
     $lblInterval = New-Label -Text "Interval (seconds):" -Property @{ AutoSize = $true; Anchor = 'Left'; TextAlign = 'MiddleLeft'; Margin = [System.Windows.Forms.Padding]::new(0, 3, 10, 3) }
-    $numInterval = New-Object System.Windows.Forms.NumericUpDown -Property @{ Width = 100; Minimum = 10; Maximum = 86400; Value = $Monitor.IntervalSeconds; Anchor = 'Left' }
+    $numInterval = New-Object System.Windows.Forms.NumericUpDown -Property @{ Width = 100; Minimum = 10; Maximum = 86400; Value = $monitor.IntervalSeconds; Anchor = 'Left' }
 
     $tblGeneral.Controls.Add($lblName, 0, 0); $tblGeneral.Controls.Add($txtName, 1, 0)
     $tblGeneral.Controls.Add($lblInterval, 0, 1); $tblGeneral.Controls.Add($numInterval, 1, 1)
     $grpGeneral.Controls.Add($tblGeneral)
 
-    # --- Request Details Group (Refactored) ---
     $grpReq = New-Object System.Windows.Forms.GroupBox -Property @{ Text = "Request Details"; Dock = 'Fill'; AutoSize = $false; Height = 320; Padding = [System.Windows.Forms.Padding]::new(10); Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 10) }
     $requestTabControl = New-Object System.Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Height = 300; MinimumSize = New-Object System.Drawing.Size(200, 280); Margin = [System.Windows.Forms.Padding]::new(0) }
 
-    # Request > General Tab
     $tabReqGeneral = New-Object System.Windows.Forms.TabPage -Property @{ Text = "General" }
     $tblReqGeneral = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Fill'; ColumnCount = 2; AutoSize = $true }
     $tblReqGeneral.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
@@ -2608,11 +3283,11 @@ function Show-MonitorEditor {
     $lblReqMethod = New-Label -Text "Method:" -Property @{ Anchor = 'Left'; TextAlign = 'MiddleLeft' }
     $comboReqMethod = New-Object System.Windows.Forms.ComboBox -Property @{ DropDownStyle = 'DropDownList'; Dock = 'Fill' }
     $comboReqMethod.Items.AddRange(@("GET", "POST", "PUT", "DELETE", "PATCH"))
-    $comboReqMethod.SelectedItem = $Monitor.Request.Method
+    $comboReqMethod.SelectedItem = $monitor.Request.Method
     $lblReqUrl = New-Label -Text "URL:" -Property @{ Anchor = 'Left'; TextAlign = 'MiddleLeft' }
-    $txtReqUrl = New-TextBox -Property @{ Text = $Monitor.Request.Url; Dock = 'Fill' }
+    $txtReqUrl = New-TextBox -Property @{ Text = $monitor.Request.Url; Dock = 'Fill' }
     $lblReqTimeout = New-Label -Text "Timeout (seconds):" -Property @{ Anchor = 'Left'; TextAlign = 'MiddleLeft' }
-    $numReqTimeout = New-Object System.Windows.Forms.NumericUpDown -Property @{ Width = 100; Minimum = 1; Maximum = 300; Value = $Monitor.Request.RequestTimeoutSeconds }
+    $numReqTimeout = New-Object System.Windows.Forms.NumericUpDown -Property @{ Width = 100; Minimum = 1; Maximum = 300; Value = $monitor.Request.RequestTimeoutSeconds }
     $btnImport = New-Button -Text "Import from Main Window" -Property @{ AutoSize = $true; MinimumSize = New-Object System.Drawing.Size(180, 26); Anchor = 'Left'; Margin = [System.Windows.Forms.Padding]::new(0, 6, 0, 0) } -OnClick {
         $comboReqMethod.SelectedItem = $script:comboMethod.SelectedItem
         $txtReqUrl.Text = $script:textUrl.Text
@@ -2620,7 +3295,6 @@ function Show-MonitorEditor {
         $txtReqBody.Text = $script:textBody.Text
         $comboReqBodyType.SelectedItem = $script:comboBodyType.SelectedItem
 
-        # Import Authentication settings
         $mainFormAuthData = (& $script:authPanel.GetAuthData)
         $editorAuthPanel = $authPanel
         $editorAuthPanel.ComboAuthType.SelectedItem = $mainFormAuthData.Type
@@ -2641,43 +3315,39 @@ function Show-MonitorEditor {
     $tblReqGeneral.Controls.Add($btnImport, 0, 3); $tblReqGeneral.SetColumnSpan($btnImport, 2)
     $tabReqGeneral.Controls.Add($tblReqGeneral)
 
-    # Request > Headers Tab
     $tabReqHeaders = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Headers" }
-    $txtReqHeaders = New-TextBox -Multiline $true -Property @{ Text = $Monitor.Request.Headers; Dock = 'Fill'; Font = New-Object System.Drawing.Font("Courier New", 9) }
+    $txtReqHeaders = New-TextBox -Multiline $true -Property @{ Text = $monitor.Request.Headers; Dock = 'Fill'; Font = New-Object System.Drawing.Font("Courier New", 9) }
     $tabReqHeaders.Controls.Add($txtReqHeaders)
 
-    # Request > Body Tab
     $tabReqBody = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Body" }
     $panelReqBodyType = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Top'; AutoSize = $true }
     $lblReqBodyType = New-Label -Text "Body Type:" -Property @{ AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0, 3, 0, 0) }
     $comboReqBodyType = New-Object System.Windows.Forms.ComboBox -Property @{ DropDownStyle = 'DropDownList'; Width = 200 }
     $comboReqBodyType.Items.AddRange(@("multipart/form-data", "application/json", "application/xml", "text/plain", "application/x-www-form-urlencoded", "GraphQL"))
-    $comboReqBodyType.SelectedItem = $Monitor.Request.BodyType
+    $comboReqBodyType.SelectedItem = $monitor.Request.BodyType
     $panelReqBodyType.Controls.AddRange(@($lblReqBodyType, $comboReqBodyType))
-    $txtReqBody = New-TextBox -Multiline $true -Property @{ Text = $Monitor.Request.Body; Dock = 'Fill'; Font = New-Object System.Drawing.Font("Courier New", 9) }
+    $txtReqBody = New-TextBox -Multiline $true -Property @{ Text = $monitor.Request.Body; Dock = 'Fill'; Font = New-Object System.Drawing.Font("Courier New", 9) }
     $tabReqBody.Controls.AddRange(@($txtReqBody, $panelReqBodyType))
 
-    # Request > Auth Tab
-    $authPanel = New-AuthPanel -AuthData $Monitor.Request.Authentication
+    $authPanel = New-AuthPanel -AuthData $monitor.Request.Authentication
     $tabReqAuth = $authPanel.Tab
 
     $requestTabControl.TabPages.AddRange(@($tabReqGeneral, $tabReqHeaders, $tabReqBody, $tabReqAuth))
     $grpReq.Controls.Add($requestTabControl)
 
-    # --- Alerting Group ---
     $grpAlert = New-Object System.Windows.Forms.GroupBox -Property @{ Text = "Alerting"; Dock = 'Fill'; AutoSize = $true; Padding = [System.Windows.Forms.Padding]::new(10); Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 10) }
     $tblAlert = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Fill'; ColumnCount = 2; AutoSize = $true }
     $tblAlert.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $tblAlert.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
 
-    $chkFail = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Alert on HTTP Failure (Status != 2xx)"; Checked = $Monitor.Alerts.OnFailure; AutoSize = $true }
-    $chkSlow = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Alert on Slow Response"; Checked = $Monitor.Alerts.OnSlow; AutoSize = $true }
+    $chkFail = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Alert on HTTP Failure (Status != 2xx)"; Checked = $monitor.Alerts.OnFailure; AutoSize = $true }
+    $chkSlow = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Alert on Slow Response"; Checked = $monitor.Alerts.OnSlow; AutoSize = $true }
     $lblThresh = New-Label -Text "Threshold (ms):" -Property @{ AutoSize = $true; Anchor = 'Left'; TextAlign = 'MiddleLeft'; Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 0) }
     $numThresh = New-Object System.Windows.Forms.NumericUpDown -Property @{ Width = 80; Minimum = 1; Maximum = 60000; Anchor = 'Left' }
-    try { $numThresh.Value = $Monitor.Alerts.ThresholdMs } catch { $numThresh.Value = 1000 }
-    $chkEmail = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Send Email Alert"; Checked = $Monitor.Alerts.SendEmail; AutoSize = $true }
+    try { $numThresh.Value = $monitor.Alerts.ThresholdMs } catch { $numThresh.Value = 1000 }
+    $chkEmail = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Send Email Alert"; Checked = $monitor.Alerts.SendEmail; AutoSize = $true }
     $lblEmail = New-Label -Text "To:" -Property @{ AutoSize = $true; Anchor = 'Left'; TextAlign = 'MiddleLeft'; Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 0) }
-    $txtEmail = New-TextBox -Property @{ Text = $Monitor.Alerts.EmailTo; Dock = 'Fill' }
+    $txtEmail = New-TextBox -Property @{ Text = $monitor.Alerts.EmailTo; Dock = 'Fill' }
     $btnSmtpConfig = New-Button -Text "Configure Email (Global)" -Property @{ Width = 250; Height = 35; Anchor = 'Left'; Margin = [System.Windows.Forms.Padding]::new(0, 5, 0, 0) } -OnClick { Show-MonitorEmailSettings -parentForm $form }
 
     $tblAlert.Controls.Add($chkFail, 0, 0); $tblAlert.SetColumnSpan($chkFail, 2)
@@ -2688,9 +3358,8 @@ function Show-MonitorEditor {
     $tblAlert.Controls.Add($btnSmtpConfig, 0, 5); $tblAlert.SetColumnSpan($btnSmtpConfig, 2)
     $grpAlert.Controls.Add($tblAlert)
 
-    # --- Analytics Group ---
     $grpAnalytics = New-Object System.Windows.Forms.GroupBox -Property @{ Text = "Analytics Integration (Webhook URL)"; Dock = 'Fill'; AutoSize = $false; Height = 70; Padding = [System.Windows.Forms.Padding]::new(10); Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 10) }
-    $txtWebhook = New-TextBox -Property @{ Text = $Monitor.AnalyticsUrl; Dock = 'Top'; Height = 25 }
+    $txtWebhook = New-TextBox -Property @{ Text = $monitor.AnalyticsUrl; Dock = 'Top'; Height = 25 }
     $grpAnalytics.Controls.Add($txtWebhook)
 
     $mainLayout.Controls.Add($grpGeneral, 0, 0)
@@ -2698,15 +3367,13 @@ function Show-MonitorEditor {
     $mainLayout.Controls.Add($grpAlert, 0, 2)
     $mainLayout.Controls.Add($grpAnalytics, 0, 3)
 
-    # --- Bottom Button Panel ---
     $btnPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Bottom'; Height = 55; ColumnCount = 4; Padding = [System.Windows.Forms.Padding]::new(5) }
-    $btnPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) # Spacer
-    $btnPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) # Test
-    $btnPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) # Save
-    $btnPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) # Cancel
+    $btnPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) 
+    $btnPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) 
+    $btnPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) 
+    $btnPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) 
 
     $btnSave = New-Button -Text "Save" -Style 'Primary' -Property @{ Width = 100; Height = 35; Anchor = 'None' } -OnClick {
-        # Validation
         if ([string]::IsNullOrWhiteSpace($txtName.Text)) {
             [System.Windows.Forms.MessageBox]::Show("Monitor Name cannot be empty.", "Validation Error", "OK", "Warning")
             return
@@ -2716,21 +3383,23 @@ function Show-MonitorEditor {
             return
         }
 
-        $Monitor.Name = $txtName.Text
-        $Monitor.IntervalSeconds = $numInterval.Value
-        $Monitor.Request.Method = $comboReqMethod.SelectedItem
-        $Monitor.Request.Url = $txtReqUrl.Text
-        $Monitor.Request.RequestTimeoutSeconds = $numReqTimeout.Value
-        $Monitor.Request.Headers = $txtReqHeaders.Text
-        $Monitor.Request.BodyType = $comboReqBodyType.SelectedItem
-        $Monitor.Request.Body = $txtReqBody.Text
-        $Monitor.Request.Authentication = & $authPanel.GetAuthData
-        $Monitor.Alerts.OnFailure = $chkFail.Checked
-        $Monitor.Alerts.OnSlow = $chkSlow.Checked
-        $Monitor.Alerts.ThresholdMs = $numThresh.Value
-        $Monitor.Alerts.SendEmail = $chkEmail.Checked
-        $Monitor.Alerts.EmailTo = $txtEmail.Text
-        $Monitor.AnalyticsUrl = $txtWebhook.Text
+        $monitor.Name = $txtName.Text
+        $monitor.IntervalSeconds = $numInterval.Value
+        $monitor.Request.Method = $comboReqMethod.SelectedItem
+        $monitor.Request.Url = $txtReqUrl.Text
+        $monitor.Request.RequestTimeoutSeconds = $numReqTimeout.Value
+        $monitor.Request.Headers = $txtReqHeaders.Text
+        $monitor.Request.BodyType = $comboReqBodyType.SelectedItem
+        $monitor.Request.Body = $txtReqBody.Text
+        $monitor.Request.Authentication = & $authPanel.GetAuthData
+        $monitor.Alerts.OnFailure = $chkFail.Checked
+        $monitor.Alerts.OnSlow = $chkSlow.Checked
+        $monitor.Alerts.ThresholdMs = $numThresh.Value
+        $monitor.Alerts.SendEmail = $chkEmail.Checked
+        $monitor.Alerts.EmailTo = $txtEmail.Text
+        $monitor.AnalyticsUrl = $txtWebhook.Text
+#endregion
+#region Logging
         $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
         $form.Close()
     }
@@ -2743,6 +3412,8 @@ function Show-MonitorEditor {
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             $resp = $req.GetResponse()
             $sw.Stop()
+#endregion
+#region GUI Initialization and Layout
             [System.Windows.Forms.MessageBox]::Show("Success!`nStatus: $([int]$resp.StatusCode)`nTime: $($sw.ElapsedMilliseconds)ms", "Test Result", "OK", "Information")
         } catch {
             [System.Windows.Forms.MessageBox]::Show("Failed!`nError: $($_.Exception.Message)", "Test Result", "OK", "Error")
@@ -2757,11 +3428,24 @@ function Show-MonitorEditor {
     $scrollPanel.Controls.Add($mainLayout)
 
     $form.Controls.AddRange(@($scrollPanel, $btnPanel))
+#endregion
+#region Logging
     return $form.ShowDialog()
 }
 
-# --- Monitor Manager Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-MonitorManager {
+#endregion
+#region GUI Initialization and Layout
     param([System.Windows.Forms.Form]$parentForm)
 
     $monitorForm = New-Object System.Windows.Forms.Form -Property @{
@@ -2778,6 +3462,16 @@ function Show-MonitorManager {
     $listMonitors.Columns.Add("Status", 80) | Out-Null
     $listMonitors.Columns.Add("Last Run", 120) | Out-Null
 
+<#
+.SYNOPSIS
+    Refresh function.
+.DESCRIPTION
+    Handles logic related to Refresh.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Refresh-List {
         $listMonitors.Items.Clear()
         foreach ($m in $script:monitors) {
@@ -2809,6 +3503,8 @@ function Show-MonitorManager {
             AnalyticsUrl = ""
             LastRun = $null
         }
+#endregion
+#region Logging
         if ((Show-MonitorEditor -Monitor $newMonitor) -eq [System.Windows.Forms.DialogResult]::OK) {
             $script:monitors += $newMonitor
             Save-Monitors
@@ -2816,13 +3512,15 @@ function Show-MonitorManager {
         }
     }
 
+#endregion
+#region GUI Initialization and Layout
     $btnEdit = New-Button -Text "Edit" -Property @{ Width = 100; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if ($listMonitors.SelectedItems.Count -gt 0) {
             $m = $listMonitors.SelectedItems[0].Tag
-            # Deep clone the monitor object to prevent auto-saving on cancel
             $monitorToEdit = $m | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+#endregion
+#region Logging
             if ((Show-MonitorEditor -Monitor $monitorToEdit) -eq [System.Windows.Forms.DialogResult]::OK) {
-                # Find the original monitor by its ID and replace it with the edited version
                 $originalMonitorIndex = -1
                 for ($i = 0; $i -lt $script:monitors.Count; $i++) {
                     if ($script:monitors[$i].Id -eq $m.Id) {
@@ -2831,10 +3529,12 @@ function Show-MonitorManager {
                     }
                 }
                 if ($originalMonitorIndex -ne -1) { $script:monitors[$originalMonitorIndex] = $monitorToEdit }
-                Save-Monitors # Save the entire updated array
+                Save-Monitors 
                 Refresh-List
             }
         } else {
+#endregion
+#region GUI Initialization and Layout
             [System.Windows.Forms.MessageBox]::Show("Please select a monitor to edit.", "Selection Required", "OK", "Warning")
         }
     }
@@ -2863,18 +3563,30 @@ function Show-MonitorManager {
         }
     }
 
+#endregion
+#region Logging
     $btnOpenLog = New-Button -Text "Open Log" -Property @{ Width = 180; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if (Test-Path $monitorLogFilePath) {
             try {
                 Start-Process $monitorLogFilePath
             } catch {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
                 [System.Windows.Forms.MessageBox]::Show("Failed to open log file: $($_.Exception.Message)", "Error", "OK", "Error")
             }
         } else {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
             [System.Windows.Forms.MessageBox]::Show("Log file not found yet.", "Info", "OK", "Information")
         }
     }
 
+#endregion
+#region GUI Initialization and Layout
     $btnCharts = New-Button -Text "Visualize" -Property @{ Width = 110; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         Show-MonitorChartWindow -parentForm $monitorForm
     }
@@ -2883,34 +3595,70 @@ function Show-MonitorManager {
         Show-MonitorEmailSettings -parentForm $monitorForm
     }
 
+#endregion
+#region Logging
     $btnClearLog = New-Button -Text "Clear Log" -Property @{ Width = 180; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ([System.Windows.Forms.MessageBox]::Show("Clear the monitor log file?", "Confirm", "YesNo", "Warning") -eq "Yes") {
             Clear-Content $monitorLogFilePath -ErrorAction SilentlyContinue
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
             [System.Windows.Forms.MessageBox]::Show("Log cleared.", "Info", "OK", "Information")
         }
     }
 
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $btnArchiveLog = New-Button -Text "Archive Log" -Property @{ Width = 120; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if (Test-Path $monitorLogFilePath) {
             $archiveName = "$monitorLogFilePath.$((Get-Date).ToString('yyyyMMdd-HHmmss')).csv"
             Rename-Item $monitorLogFilePath $archiveName
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
             [System.Windows.Forms.MessageBox]::Show("Log archived to:`n$archiveName", "Info", "OK", "Information")
         }
     }
 
+#endregion
+#region GUI Initialization and Layout
     $buttonsFlow = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ AutoSize = $true; FlowDirection = 'LeftToRight'; WrapContents = $false; Margin = [System.Windows.Forms.Padding]::new(0); Padding = [System.Windows.Forms.Padding]::new(5,0,5,0) }
+#endregion
+#region Logging
     $buttonsFlow.Controls.AddRange(@($btnCharts, $btnOpenLog, $btnAdd, $btnEdit, $btnToggle, $btnDelete, $btnEmailConfig, $btnClearLog, $btnArchiveLog))
     $panelBtn.Controls.Add($buttonsFlow, 1, 0)
+#endregion
+#region GUI Initialization and Layout
     $monitorForm.Controls.AddRange(@($listMonitors, $panelBtn))
+#endregion
+#region Logging
     $monitorForm.ShowDialog($parentForm)
 }
 
-# --- JWT Tool Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-JwtTool {
+#endregion
+#region GUI Initialization and Layout
     $jwtForm = New-Object System.Windows.Forms.Form -Property @{ Text = "JWT Utility"; Size = New-Object System.Drawing.Size(950, 700); StartPosition = "CenterParent"; BackColor = $script:Theme.FormBackground }
     $tabs = New-Object System.Windows.Forms.TabControl -Property @{ Dock = 'Fill'; Font = New-Object System.Drawing.Font("Segoe UI", 10) }
     
-    # Decoder Tab
     $tabDecode = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Decoder"; Padding = [System.Windows.Forms.Padding]::new(10); BackColor = $script:Theme.FormBackground }
     $split = New-Object System.Windows.Forms.SplitContainer -Property @{ Dock = 'Fill'; Orientation = 'Horizontal'; SplitterDistance = 280; BackColor = $script:Theme.FormBackground }
     
@@ -2942,6 +3690,26 @@ function Show-JwtTool {
         if ($token -match '^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$') {
             $parts = $token.Split('.')
             try {
+<#
+.SYNOPSIS
+    FromB64Url function.
+.DESCRIPTION
+    Handles logic related to FromB64Url.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
+<#
+.SYNOPSIS
+    FromB64Url
+.DESCRIPTION
+    Executes the FromB64Url operation.
+.PARAMETER s
+    Input parameter s.
+.OUTPUTS
+    Varies depending on execution context.
+#>
                 function FromB64Url($s) { 
                     $s=$s.Replace('-','+').Replace('_','/'); switch($s.Length%4){2{$s+='=='}3{$s+='='}}; 
                     [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($s)) 
@@ -2989,7 +3757,6 @@ function Show-JwtTool {
     $split.Panel2.Controls.Add($outputGroup)
     $tabDecode.Controls.Add($split)
     
-    # Generator Tab (Simple HMAC)
     $tabGen = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Generator (HS256)"; Padding = [System.Windows.Forms.Padding]::new(10); BackColor = $script:Theme.FormBackground }
     $genLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=1; RowCount=4 }
     $genLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 55))) | Out-Null
@@ -3013,7 +3780,7 @@ function Show-JwtTool {
     $btnGen = New-Button -Text "Generate JWT" -Style 'Primary' -Property @{ Height=35; Width=140; Margin=[System.Windows.Forms.Padding]::new(0,8,0,8) } -OnClick {
         try {
             $header = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes('{"alg":"HS256","typ":"JWT"}')).Replace('+','-').Replace('/','_').TrimEnd('=')
-            $payloadJson = $txtPayload.Text; $null = $payloadJson | ConvertFrom-Json # Validate
+            $payloadJson = $txtPayload.Text; $null = $payloadJson | ConvertFrom-Json 
             $payload = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($payloadJson)).Replace('+','-').Replace('/','_').TrimEnd('=')
             $secret = [System.Text.Encoding]::UTF8.GetBytes($txtSecret.Text)
             $toSign = [System.Text.Encoding]::UTF8.GetBytes("$header.$payload")
@@ -3033,12 +3800,25 @@ function Show-JwtTool {
 
     $tabs.TabPages.AddRange(@($tabDecode, $tabGen))
     $jwtForm.Controls.Add($tabs)
+#endregion
+#region Logging
     $jwtForm.ShowDialog()
 }
 
-# --- REFACTORED: Environment Manager Window (now uses the top-level editor) ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-EnvironmentManagerWindow {
     param (
+#endregion
+#region GUI Initialization and Layout
         [System.Windows.Forms.Form]$parentForm
     )
 
@@ -3054,15 +3834,14 @@ function Show-EnvironmentManagerWindow {
     $listEnvironments = New-Object System.Windows.Forms.ListBox -Property @{ Dock = 'Fill' }
     $script:environments.Keys | Sort-Object | ForEach-Object { $listEnvironments.Items.Add($_) }
 
-    # --- Button Panel ---
     $panelButtons = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Right'; Width = 180; Padding = [System.Windows.Forms.Padding]::new(10); FlowDirection = 'TopDown' }
     $btnAdd = New-Button -Text "Add..." -Style 'Secondary' -Property @{ Width = 150; Height = 35; Margin = [System.Windows.Forms.Padding]::new(0,0,0,8) } -OnClick {
         $newEnvName = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new environment name:", "Add Environment", "New Environment")
         if ($newEnvName -and -not $script:environments.ContainsKey($newEnvName)) {
-            # Create a new, empty data structure for the environment
             $newEnvData = @{ Url = ""; Headers = ""; Authentication = @{ Type = "No Auth" }; Variables = @{} }
-            # Open the editor with the new data
             $result = Show-EnvironmentEditor -parentForm $envManagerForm -EnvironmentName $newEnvName -EnvironmentData $newEnvData
+#endregion
+#region Logging
             if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
                 $script:environments[$newEnvName] = $newEnvData
                 $listEnvironments.Items.Add($newEnvName)
@@ -3071,18 +3850,23 @@ function Show-EnvironmentManagerWindow {
             }
         }
     }
+#endregion
+#region GUI Initialization and Layout
     $btnEdit = New-Button -Text "Edit..." -Style 'Secondary' -Property @{ Width = 150; Height = 35; Margin = [System.Windows.Forms.Padding]::new(0,0,0,8) } -OnClick {
         $selected = $listEnvironments.SelectedItem
         if ($selected) {
-            # Get a clone of the data to edit, so changes are only saved on "OK"
             $envData = $script:environments[$selected].Clone()
             $result = Show-EnvironmentEditor -parentForm $envManagerForm -EnvironmentName $selected -EnvironmentData $envData
+#endregion
+#region Logging
             if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
-                $script:environments[$selected] = $envData # Update with changes
+                $script:environments[$selected] = $envData 
                 Save-Environments
             }
         }
     }
+#endregion
+#region GUI Initialization and Layout
     $btnRemove = New-Button -Text "Remove" -Style 'Danger' -Property @{ Width = 150; Height = 35; Margin = [System.Windows.Forms.Padding]::new(0,0,0,8) } -OnClick {
         $selected = $listEnvironments.SelectedItem
         if ($selected) {
@@ -3100,8 +3884,8 @@ function Show-EnvironmentManagerWindow {
             $newEnvData = @{
                 Url       = $script:textUrl.Text
                 Headers   = $script:textHeaders.Text
-                Variables = @{} # Start with empty variables
-                Authentication = (& $script:authPanel.GetAuthData) # Get auth data from main form's panel
+                Variables = @{} 
+                Authentication = (& $script:authPanel.GetAuthData) 
             }
 
             $script:environments[$newEnvName] = $newEnvData
@@ -3117,25 +3901,51 @@ function Show-EnvironmentManagerWindow {
 
     $btnClose = New-Button -Text "Close" -Style 'Primary' -Property @{ Width = 150; Height = 35; Margin = [System.Windows.Forms.Padding]::new(0,50,0,0) } -OnClick {
         Save-Environments
+#endregion
+#region Logging
         $envManagerForm.DialogResult = [System.Windows.Forms.DialogResult]::OK
+#endregion
+#region GUI Initialization and Layout
         $envManagerForm.Close()
     }
     $panelButtons.Controls.AddRange(@($btnAdd, $btnEdit, $btnRemove, $btnSaveCurrent, $btnClose))
     
     $envManagerForm.Controls.AddRange(@($listEnvironments, $panelButtons))
+#endregion
+#region Logging
     $envManagerForm.ShowDialog($parentForm)
 }
 
-# --- Log Viewer Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-LogViewer {
+#endregion
+#region GUI Initialization and Layout
     param($parentForm)
-    if (-not (Test-Path $logFilePath)) { [System.Windows.Forms.MessageBox]::Show("Log file not found.", "Info", "OK", "Information"); return } #FIX: Added check for log file
+#endregion
+#region Logging
+    if (-not (Test-Path $logFilePath)) { [System.Windows.Forms.MessageBox]::Show("Log file not found.", "Info", "OK", "Information"); return } 
     
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $logForm = New-Object System.Windows.Forms.Form -Property @{ Text="Log Viewer"; Size=New-Object System.Drawing.Size(1000, 600); StartPosition="CenterParent" }
+#endregion
+#region GUI Initialization and Layout
     $grid = New-Object System.Windows.Forms.DataGridView -Property @{ Dock="Fill"; ReadOnly=$true; AllowUserToAddRows=$false; SelectionMode="FullRowSelect"; AutoSizeColumnsMode="Fill"; RowHeadersVisible=$false }
     
     try {
-        # Read with FileShare to avoid locking issues if logging happens simultaneously
+#endregion
+#region Logging
         $fs = New-Object System.IO.FileStream($logFilePath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
         $sr = New-Object System.IO.StreamReader($fs)
         $content = $sr.ReadToEnd()
@@ -3159,8 +3969,14 @@ function Show-LogViewer {
         }
         if ($grid.Columns["Level"]) { $grid.Columns["Level"].FillWeight = 10 }
         if ($grid.Columns["Message"]) { $grid.Columns["Message"].FillWeight = 70 }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     } catch { [System.Windows.Forms.MessageBox]::Show("Failed to load logs: $($_.Exception.Message)", "Error", "OK", "Error") }
     
+#endregion
+#region GUI Initialization and Layout
     $panel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock="Top"; AutoSize=$true; Padding=[System.Windows.Forms.Padding]::new(5) }
     
     $lblSearch = New-Label -Text "Search:" -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(0,5,0,0) }
@@ -3176,17 +3992,14 @@ function Show-LogViewer {
         $dv = $grid.DataSource.DefaultView
         $parts = @()
         
-        # Text Filter
         $f = $txtFilter.Text
         if ($f) { $parts += "(Message LIKE '%$f%' OR Level LIKE '%$f%')" }
         
-        # Date Filter
         if ($dtpFrom.Checked) {
             $d = $dtpFrom.Value.Date.ToString("MM/dd/yyyy")
             $parts += "Timestamp >= #$d#"
         }
         if ($dtpTo.Checked) {
-            # End of day
             $d = $dtpTo.Value.Date.AddDays(1).AddTicks(-1).ToString("MM/dd/yyyy HH:mm:ss")
             $parts += "Timestamp <= #$d#"
         }
@@ -3194,14 +4007,20 @@ function Show-LogViewer {
         if ($parts.Count -gt 0) { $dv.RowFilter = $parts -join " AND " } else { $dv.RowFilter = "" }
     }
 
-    $txtFilter.Add_TextChanged($updateFilter) #FIX: Corrected event handler
+    $txtFilter.Add_TextChanged($updateFilter) 
     $dtpFrom.Add_ValueChanged($updateFilter)
     $dtpTo.Add_ValueChanged($updateFilter)
 
     $btnExport = New-Button -Text "Export" -Property @{ Width=100; Height=30; Margin=[System.Windows.Forms.Padding]::new(10,5,0,0) } -OnClick {
+#endregion
+#region Logging
         $sfd = New-Object System.Windows.Forms.SaveFileDialog
         $sfd.Filter = "CSV Files (*.csv)|*.csv"
         $sfd.FileName = "filtered_logs.csv"
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
                 $dv = $grid.DataSource.DefaultView
@@ -3214,19 +4033,38 @@ function Show-LogViewer {
                     }
                 }
                 $exportData | Export-Csv -Path $sfd.FileName -NoTypeInformation -Encoding UTF8
+#endregion
+#region GUI Initialization and Layout
                 [System.Windows.Forms.MessageBox]::Show("Export successful.", "Info", "OK", "Information")
             } catch { [System.Windows.Forms.MessageBox]::Show("Export failed: $($_.Exception.Message)", "Error", "OK", "Error") }
         }
     }
 
     $panel.Controls.AddRange(@($lblSearch, $txtFilter, $lblFrom, $dtpFrom, $lblTo, $dtpTo, $btnExport))
+#endregion
+#region Logging
     $logForm.Controls.AddRange(@($grid, $panel))
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $logForm.ShowDialog($parentForm)
 }
 
-# Displays the main settings window, allowing users to configure application behavior.
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-SettingsWindow {
     param (
+#endregion
+#region GUI Initialization and Layout
         [System.Windows.Forms.Form]$parentForm
     )
 
@@ -3245,7 +4083,6 @@ function Show-SettingsWindow {
     
     $settingsToolTip = New-Object System.Windows.Forms.ToolTip
 
-    # Main vertical layout
     $mainTableLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
         Dock         = [System.Windows.Forms.DockStyle]::Top
         AutoSize     = $true
@@ -3256,7 +4093,6 @@ function Show-SettingsWindow {
     }
     $mainTableLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
     
-    # --- Group 1: UI & Panel Visibility (Unchanged) ---
     $groupPanels = New-Object System.Windows.Forms.GroupBox -Property @{
         Dock         = [System.Windows.Forms.DockStyle]::Top
         AutoSize     = $true
@@ -3286,7 +4122,6 @@ function Show-SettingsWindow {
     $panelsTable.Controls.AddRange(@($checkShowEnvironment, $checkShowHistory, $checkShowRequestHeaders, $checkShowAuth, $checkShowPreRequest, $checkShowTests, $checkShowTestResults, $checkShowResponse, $checkShowJsonTree, $checkShowResponseHeaders, $checkShowCurl, $checkShowConsole))
     $groupPanels.Controls.Add($panelsTable)
 
-    # --- Group 2: Configuration (FIXED CUTOFFS) ---
     $groupConfiguration = New-Object System.Windows.Forms.GroupBox -Property @{
         Dock         = [System.Windows.Forms.DockStyle]::Top
         AutoSize     = $true
@@ -3296,17 +4131,29 @@ function Show-SettingsWindow {
         Margin       = [System.Windows.Forms.Padding]::new(0, 0, 0, 15)
     }
 
-    # 2-column grid (50% / 50%)
     $configTable = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Fill'; AutoSize = $true; ColumnCount = 2; RowCount = 7 }
     $configTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50)))
     $configTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50)))
 
     $stdMargin = [System.Windows.Forms.Padding]::new(3, 6, 3, 3)
 
-    # Row 0: Logs
+#endregion
+#region Logging
     $checkEnableLogs = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Enable Logging"; Checked = $script:settings.EnableLogs; AutoSize = $true; Margin = $stdMargin }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $panelLogLvl = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Fill'; AutoSize=$true; FlowDirection='LeftToRight' }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $lblLog = New-Label -Text "Level:" -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(0,6,5,0) }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $comboLogLevel = New-Object System.Windows.Forms.ComboBox -Property @{ DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList; Width = 100 }
     $comboLogLevel.Items.AddRange(@("Info", "Debug")); $comboLogLevel.SelectedItem = $script:settings.LogLevel
     $panelLogLvl.Controls.AddRange(@($lblLog, $comboLogLevel))
@@ -3314,28 +4161,26 @@ function Show-SettingsWindow {
     $configTable.Controls.Add($checkEnableLogs, 0, 0)
     $configTable.Controls.Add($panelLogLvl, 1, 0)
 
-    # Row 1: History | Auto-Run
+#endregion
+#region GUI Initialization and Layout
     $checkEnableHistory = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Enable History Tracking"; Checked = $script:settings.EnableHistory; AutoSize = $true; Margin = $stdMargin }
     $checkAutoRunHistory = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Auto-Run on History Double-Click"; Checked = $script:settings.AutoRunHistory; AutoSize = $true; Margin = $stdMargin }
     
     $configTable.Controls.Add($checkEnableHistory, 0, 1)
     $configTable.Controls.Add($checkAutoRunHistory, 1, 1)
 
-    # Row 2: All Methods | SSL
     $checkEnableAllMethods = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Allow all request methods"; Checked = $script:settings.EnableAllMethods; AutoSize = $true; Margin = $stdMargin }
     $checkIgnoreSsl = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Ignore SSL Errors"; Checked = $script:settings.IgnoreSslErrors; AutoSize = $true; Margin = $stdMargin }
     
     $configTable.Controls.Add($checkEnableAllMethods, 0, 2)
     $configTable.Controls.Add($checkIgnoreSsl, 1, 2)
 
-    # Row 3: Postman | Curl
     $checkEnablePostman = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Enable Postman Import"; Checked = $script:settings.EnablePostmanImport; AutoSize = $true; Margin = $stdMargin }
     $checkEnableCurl = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Enable cURL Import"; Checked = $script:settings.EnableCurlImport; AutoSize = $true; Margin = $stdMargin }
     
     $configTable.Controls.Add($checkEnablePostman, 0, 3)
     $configTable.Controls.Add($checkEnableCurl, 1, 3)
 
-    # Row 4: Console Language | Dropdown
     $labelConsoleLang = New-Label -Text "Default Console Language:" -Property @{ AutoSize = $true; Anchor = 'Left'; TextAlign = 'MiddleLeft'; Margin = $stdMargin }
     $comboConsoleLang = New-Object System.Windows.Forms.ComboBox -Property @{ DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList; Width = 200; Margin = $stdMargin }
     $comboConsoleLang.Items.AddRange(@("PowerShell", "JavaScript (Node.js)", "Python", "PHP", "Ruby", "Go", "Batch", "Bash"))
@@ -3344,7 +4189,6 @@ function Show-SettingsWindow {
     $configTable.Controls.Add($labelConsoleLang, 0, 4)
     $configTable.Controls.Add($comboConsoleLang, 1, 4)
 
-    # Row 5: Timeout | Font Size
     $panelTimeout = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Fill'; AutoSize=$true; FlowDirection='LeftToRight'; Padding=[System.Windows.Forms.Padding]::new(0) }
     $labelTimeout = New-Label -Text "Timeout (s):" -Property @{ AutoSize=$true; TextAlign='MiddleLeft'; Margin=[System.Windows.Forms.Padding]::new(3,6,3,0) }
     $textTimeout = New-TextBox -Property @{ Text = $script:settings.RequestTimeoutSeconds; Width = 50; Margin=[System.Windows.Forms.Padding]::new(0,3,0,0) }
@@ -3358,7 +4202,6 @@ function Show-SettingsWindow {
     $configTable.Controls.Add($panelTimeout, 0, 5)
     $configTable.Controls.Add($panelFontSize, 1, 5)
 
-    # Row 6: Repeat Request
     $checkEnableRepeat = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Enable Repeat Request"; Checked = $script:settings.EnableRepeatRequest; AutoSize = $true; Margin = $stdMargin }
     $panelRepeatCount = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Fill'; AutoSize=$true; FlowDirection='LeftToRight'; Padding=[System.Windows.Forms.Padding]::new(0) }
     $labelRepeatCount = New-Label -Text "Max Repeats:" -Property @{ AutoSize=$true; TextAlign='MiddleLeft'; Margin=[System.Windows.Forms.Padding]::new(0,6,3,0) }
@@ -3370,7 +4213,6 @@ function Show-SettingsWindow {
 
     $groupConfiguration.Controls.Add($configTable)
 
-    # --- Group 3: Auto-Save ---
     $groupAutoSave = New-Object System.Windows.Forms.GroupBox -Property @{
         Dock         = [System.Windows.Forms.DockStyle]::Top
         AutoSize     = $true
@@ -3384,26 +4226,30 @@ function Show-SettingsWindow {
     $autoSaveTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
     $autoSaveTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
 
-    # Row 0: Enable Checkbox (Span 2)
     $checkAutoSave = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Auto-Save to Folder"; Checked = $script:settings.AutoSaveToFile; AutoSize = $true; Margin = $stdMargin }
     $autoSaveTable.Controls.Add($checkAutoSave, 0, 0); $autoSaveTable.SetColumnSpan($checkAutoSave, 2)
 
-    # Row 1: Path + Button
     $textAutoSavePath = New-TextBox -Multiline $false -Property @{ Text = $script:settings.AutoSavePath; Dock = 'Fill'; Height = 30; Margin = [System.Windows.Forms.Padding]::new(3,3,3,3) }
     
     $btnBrowseAutoSavePath = New-Button -Text "Browse..." -Size (New-Object System.Drawing.Size(90, 30)) -OnClick {
+#endregion
+#region Logging
         $folderBrowserDialog = New-Object System.Windows.Forms.FolderBrowserDialog
         if ($textAutoSavePath.Text -and [System.IO.Directory]::Exists($textAutoSavePath.Text)) { $folderBrowserDialog.SelectedPath = $textAutoSavePath.Text }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($folderBrowserDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $textAutoSavePath.Text = $folderBrowserDialog.SelectedPath }
     }
     $autoSaveTable.Controls.Add($textAutoSavePath, 0, 1)
     $autoSaveTable.Controls.Add($btnBrowseAutoSavePath, 1, 1)
 
-    # Row 2: Rename Checkbox (Span 2)
+#endregion
+#region GUI Initialization and Layout
     $checkAutoRename = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Auto-Rename Output File (from inputs)"; Checked = $script:settings.AutoRenameFile; AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(3,10,3,3) }
     $autoSaveTable.Controls.Add($checkAutoRename, 0, 2); $autoSaveTable.SetColumnSpan($checkAutoRename, 2)
 
-    # Row 3: Prefix (Span 2)
     $panelPrefixRow = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Fill'; AutoSize = $true; FlowDirection = 'LeftToRight'; Margin = [System.Windows.Forms.Padding]::new(0) }
     
     $checkEnablePrefix = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Enable Prefix:"; Checked = $script:settings.EnableAutoRenamePrefix; AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(3, 6, 5, 0) } 
@@ -3416,7 +4262,8 @@ function Show-SettingsWindow {
 
     $groupAutoSave.Controls.Add($autoSaveTable)
 
-    # Logic for enabling/disabling controls
+#endregion
+#region Logging
     $checkEnableLogs.Add_CheckedChanged({ $lblLog.Enabled = $checkEnableLogs.Checked; $comboLogLevel.Enabled = $checkEnableLogs.Checked })
     $lblLog.Enabled = $checkEnableLogs.Checked; $comboLogLevel.Enabled = $checkEnableLogs.Checked
     
@@ -3436,14 +4283,16 @@ function Show-SettingsWindow {
     $labelRepeatCount.Enabled = $checkEnableRepeat.Checked
     $numRepeatCount.Enabled = $checkEnableRepeat.Checked
 
-    # --- Buttons (Centered Inline Row) ---
     $stdBtnSize = New-Object System.Drawing.Size(110, 35)
     $restoreBtnSize = New-Object System.Drawing.Size(180, 35)
+#endregion
+#region GUI Initialization and Layout
     $btnMargin = [System.Windows.Forms.Padding]::new(5)
     $btnRestore = New-Button -Text "Restore Defaults" -Style 'Danger' -Property @{ Size = $restoreBtnSize; Margin = $btnMargin } -OnClick {
         $confirm = [System.Windows.Forms.MessageBox]::Show("Are you sure you want to restore default settings? This will revert all configuration changes to their original defaults.", "Restore Defaults", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+#endregion
+#region Logging
         if ($confirm -eq [System.Windows.Forms.DialogResult]::Yes) {
-            # Restore logic
             $checkShowResponse.Checked = $script:defaultSettings.ShowResponse
             $checkShowJsonTree.Checked = $script:defaultSettings.ShowJsonTreeTab
             $checkShowEnvironment.Checked = $script:defaultSettings.ShowEnvironmentPanel
@@ -3481,16 +4330,38 @@ function Show-SettingsWindow {
         }
     }
     
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $btnViewLogs = New-Button -Text "View Logs" -Style 'Secondary' -Property @{ Size = $stdBtnSize; Margin = $btnMargin } -OnClick { Show-LogViewer -parentForm $settingsForm }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $btnOpenLogs = New-Button -Text "Open Logs" -Style 'Secondary' -Property @{ Size = $stdBtnSize; Margin = $btnMargin } -OnClick { if (Test-Path $logsDir) { Invoke-Item $logsDir } else { [System.Windows.Forms.MessageBox]::Show("Logs folder not found.", "Error", "OK", "Error") } }
     $btnClearLogs = New-Button -Text "Clear Logs" -Style 'Secondary' -Property @{ Size = $stdBtnSize; Margin = $btnMargin } -OnClick {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         $confirm = [System.Windows.Forms.MessageBox]::Show("Are you sure?", "Confirm Clear Logs", "YesNo", "Warning")
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($confirm -eq 'Yes') { try { Clear-Content -Path $logFilePath -ErrorAction Stop; Add-Content -Path $logFilePath -Value "Timestamp,Level,Message"; [System.Windows.Forms.MessageBox]::Show("Logs cleared.", "Success") } catch { [System.Windows.Forms.MessageBox]::Show("Failed to clear logs.", "Error") } }
     }
     
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
     $btnCancel = New-Button -Text "Cancel" -Style 'Secondary' -Property @{ Size = $stdBtnSize; Margin = $btnMargin } -OnClick { $settingsForm.DialogResult = [System.Windows.Forms.DialogResult]::Cancel; $settingsForm.Close() }
     
     $btnSave = New-Button -Text "Save" -Style 'Primary' -Property @{ Size = $stdBtnSize; Margin = $btnMargin } -OnClick {
+#endregion
+#region GUI Initialization and Layout
         if ($checkEnablePrefix.Checked -and [string]::IsNullOrWhiteSpace($textAutoRenamePrefix.Text)) { [System.Windows.Forms.MessageBox]::Show("Prefix cannot be blank.", "Error"); return }
         if ($checkAutoSave.Checked -and [string]::IsNullOrWhiteSpace($textAutoSavePath.Text)) { [System.Windows.Forms.MessageBox]::Show("Auto-Save path cannot be blank.", "Error"); return }
         if ($checkAutoSave.Checked -and -not (Test-Path -Path $textAutoSavePath.Text -PathType Container)) { [System.Windows.Forms.MessageBox]::Show("Auto-Save path does not exist.", "Error"); return }
@@ -3507,6 +4378,8 @@ function Show-SettingsWindow {
         $script:settings.AutoRenameFile = $checkAutoRename.Checked
         $script:settings.EnableAutoRenamePrefix = $checkEnablePrefix.Checked
         $script:settings.AutoRenamePrefix = $textAutoRenamePrefix.Text
+#endregion
+#region Logging
         $script:settings.EnableLogs = $checkEnableLogs.Checked
         $script:settings.EnableHistory = $checkEnableHistory.Checked
         $script:settings.LogLevel = $comboLogLevel.SelectedItem
@@ -3527,11 +4400,16 @@ function Show-SettingsWindow {
         $script:settings.EnableRepeatRequest = $checkEnableRepeat.Checked
         $script:settings.MaxRepeatCount = [int]$numRepeatCount.Value
         Save-Settings
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         $settingsForm.DialogResult = [System.Windows.Forms.DialogResult]::OK
+#endregion
+#region GUI Initialization and Layout
         $settingsForm.Close()
     }
 
-    # Center the button row using a 3-column layout with an autosized middle cell.
     $buttonsRow = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
         Dock        = [System.Windows.Forms.DockStyle]::Top
         AutoSize    = $true
@@ -3550,6 +4428,8 @@ function Show-SettingsWindow {
         Margin       = [System.Windows.Forms.Padding]::new(0)
         Padding      = [System.Windows.Forms.Padding]::new(0, 0, 0, 10)
     }
+#endregion
+#region Logging
     $buttonsFlow.Controls.AddRange(@($btnRestore, $btnViewLogs, $btnOpenLogs, $btnClearLogs, $btnCancel, $btnSave))
     $buttonsRow.Controls.Add($buttonsFlow, 1, 0)
 
@@ -3558,15 +4438,34 @@ function Show-SettingsWindow {
     $mainTableLayout.Controls.Add($groupAutoSave, 0, 2)
     $mainTableLayout.Controls.Add($buttonsRow, 0, 3) 
 
+#endregion
+#region GUI Initialization and Layout
     $settingsForm.Controls.Add($mainTableLayout)
     
+#endregion
+#region Logging
     return $settingsForm.ShowDialog($parentForm)
 }
 
-# --- Proxy Settings Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-ProxySettings {
+#endregion
+#region GUI Initialization and Layout
     param($parentForm)
+#endregion
+#region Logging
     $form = New-Object System.Windows.Forms.Form -Property @{ Text="Proxy Configuration"; Size=New-Object System.Drawing.Size(500, 450); StartPosition="CenterParent"; BackColor=$script:Theme.FormBackground; FormBorderStyle='FixedDialog'; MaximizeBox=$false; MinimizeBox=$false }
+#endregion
+#region GUI Initialization and Layout
     $layout = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Fill'; FlowDirection='TopDown'; Padding=[System.Windows.Forms.Padding]::new(15) }
 
     $lblMode = New-Label -Text "Proxy Mode:" -Property @{ AutoSize=$true }
@@ -3625,7 +4524,7 @@ function Show-ProxySettings {
             
             $req = [System.Net.WebRequest]::Create("http://www.google.com")
             $req.Proxy = $proxy
-            $req.Timeout = 5000 # 5 seconds timeout
+            $req.Timeout = 5000 
             $resp = $req.GetResponse()
             $resp.Close()
             
@@ -3640,11 +4539,24 @@ function Show-ProxySettings {
     $btnPanel.Controls.AddRange(@($btnSave, $btnTest))
     $layout.Controls.AddRange(@($lblMode, $comboMode, $grpCustom, $btnPanel))
     $form.Controls.Add($layout)
+#endregion
+#region Logging
     $form.ShowDialog($parentForm)
 }
 
-# --- Cookie Jar Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Show-CookieJar {
+#endregion
+#region GUI Initialization and Layout
     param($parentForm)
     $form = New-Object System.Windows.Forms.Form -Property @{ Text="Cookie Jar"; Size=New-Object System.Drawing.Size(600, 400); StartPosition="CenterParent"; BackColor=$script:Theme.FormBackground }
     
@@ -3655,6 +4567,16 @@ function Show-CookieJar {
     $grid.Columns.Add("Path", "Path") | Out-Null
     $grid.Columns.Add("Expires", "Expires") | Out-Null
 
+<#
+.SYNOPSIS
+    Refresh function.
+.DESCRIPTION
+    Handles logic related to Refresh.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Refresh-Grid {
         $grid.Rows.Clear()
         if ($script:cookieJar) {
@@ -3674,10 +4596,18 @@ function Show-CookieJar {
     $panelBtn.Controls.AddRange(@($btnClose, $btnClear))
 
     $btnExport = New-Button -Text "Export..." -Style 'Secondary' -Property @{ Width=80; Height=30; Margin=[System.Windows.Forms.Padding]::new(0,0,5,0) } -OnClick {
+#endregion
+#region Logging
         $sfd = New-Object System.Windows.Forms.SaveFileDialog -Property @{ Filter="JSON Files (*.json)|*.json"; FileName="cookies.json" }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
                 $script:cookieJar | ConvertTo-Json -Depth 5 | Set-Content -Path $sfd.FileName
+#endregion
+#region GUI Initialization and Layout
                 [System.Windows.Forms.MessageBox]::Show("Cookies exported successfully.", "Success", "OK", "Information")
             } catch {
                 [System.Windows.Forms.MessageBox]::Show("Failed to export cookies: $($_.Exception.Message)", "Error", "OK", "Error")
@@ -3686,7 +4616,13 @@ function Show-CookieJar {
     }
 
     $btnImport = New-Button -Text "Import..." -Style 'Secondary' -Property @{ Width=80; Height=30; Margin=[System.Windows.Forms.Padding]::new(0,0,5,0) } -OnClick {
+#endregion
+#region Logging
         $ofd = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter="JSON Files (*.json)|*.json" }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
                 $importedCookies = Get-Content -Path $ofd.FileName -Raw | ConvertFrom-Json
@@ -3710,6 +4646,8 @@ function Show-CookieJar {
                         } catch {}
                     }
                     Refresh-Grid
+#endregion
+#region GUI Initialization and Layout
                     [System.Windows.Forms.MessageBox]::Show("Cookies imported successfully.", "Success", "OK", "Information")
                 }
             } catch {
@@ -3721,13 +4659,26 @@ function Show-CookieJar {
     $panelBtn.Controls.AddRange(@($btnClose, $btnClear, $btnExport, $btnImport))
 
     $form.Controls.AddRange(@($grid, $panelBtn))
+#endregion
+#region Logging
     $form.ShowDialog($parentForm)
 }
 
-# The main function that constructs and displays the primary application window.
+#endregion
+#region GUI Initialization and Layout
+<#
+.SYNOPSIS
+    New function.
+.DESCRIPTION
+    Handles logic related to New.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function New-APIForm {
 
-    $script:lastResponseContentType = $null # Store the content type of the last response
+    $script:lastResponseContentType = $null 
     $script:lastResponseText = ""
     $script:lastResponseHeadersText = ""
     $script:lastResponseHeadersNormalized = @{}
@@ -3747,9 +4698,8 @@ function New-APIForm {
     $script:collectionRunnerCurrentRow = $null
     $script:cookieJar = New-Object System.Collections.ArrayList
 
-    # Create the single, persistent timer for polling request status.
     $script:requestTimer = New-Object System.Windows.Forms.Timer
-    $script:requestTimer.Interval = 100 # Check every 100ms
+    $script:requestTimer.Interval = 100 
 
     $script:requestTimer.Add_Tick({
         if ($script:currentAsyncResult -and $script:currentAsyncResult.IsCompleted) {
@@ -3758,37 +4708,36 @@ function New-APIForm {
             $jobResult = $null
             try {
                 $output = $script:currentPowerShell.EndInvoke($script:currentAsyncResult)
-                # Extract the result hashtable.
                 $jobResult = $output | Where-Object { $_ -is [hashtable] -and $_.ContainsKey('Success') } | Select-Object -First 1
             } catch {
                  $jobResult = @{ Success = $false; ErrorMessage = "Runspace Error: $($_.Exception.Message)" }
-                 $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#dc3545") # Red
+                 $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#dc3545") 
             }
 
-            # Check if it was stopped/cancelled (InvocationStateInfo might be Stopping/Stopped)
             if ($script:currentPowerShell.InvocationStateInfo.State -eq 'Stopped') {
                  $statusLabelStatus.Text = "Request Cancelled"
-                 $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#ffc107") # Yellow/Orange
+                 $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#ffc107") 
                  $richTextResponse.Text = "The request was cancelled by the user."
             }
             elseif ($jobResult) {
                 if ($jobResult.Success) {
                     $res = $jobResult.Data
                     if ($script:isRepeating) { $script:repeatSuccessCount++ }
-                    # Color code the status bar based on the response code
                     $statusCode = $res.StatusCode
                     if ($statusCode -ge 200 -and $statusCode -le 299) {
-                        $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#28a745") # Green
+                        $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#28a745") 
                     }
                     elseif ($statusCode -ge 300 -and $statusCode -le 399) {
-                        $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#ffc107") # Yellow
+                        $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#ffc107") 
                     }
-                    else { # 4xx, 5xx, etc.
-                        $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#dc3545") # Red
+                    else { 
+                        $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#dc3545") 
                     }
                     $statusLabelStatus.Text = "$($res.StatusCode) $($res.StatusDescription)"
                     $statusLabelTime.Text = "Time: $($res.ElapsedTime) ms"
                     $statusLabelSize.Text = "Size: $(if ($res.RawContentLength -gt 0) { Format-Bytes -bytes $res.RawContentLength } else { (if ($res.Content) { Format-Bytes -bytes $res.Content.Length } else { '0 bytes' }) })"
+#endregion
+#region Logging
                     Write-Log "Response: $($res.StatusCode) $($res.StatusDescription)"
 
                     $headersBuilder = New-Object System.Text.StringBuilder
@@ -3797,18 +4746,16 @@ function New-APIForm {
                     $richTextResponseHeaders.Text = $responseHeadersText
                     $script:lastResponseHeadersText = $responseHeadersText
 
-                    # Normalize response headers to lowercase keys for consistent lookups.
                     $headersNormalized = @{}
                     foreach ($k in $res.Headers.Keys) { $headersNormalized[$k.ToLower()] = $res.Headers[$k] }
                     $script:lastResponseHeadersNormalized = $headersNormalized
 
                     $contentType = ""
-                    $script:lastResponseContentType = $null # Reset content type
+                    $script:lastResponseContentType = $null 
                     if ($headersNormalized.ContainsKey('content-type')) { $contentType = $headersNormalized['content-type'].Split(';')[0].Trim() }
                     $script:lastResponseContentType = $contentType
 
                     if ($script:settings.LogLevel -eq 'Debug') {
-                        # Log Cookies
                         if ($jobResult.Cookies) {
                             $cookieLog = "Received Cookies:`r`n"
                             foreach ($c in $jobResult.Cookies) {
@@ -3827,10 +4774,8 @@ function New-APIForm {
                         }
                     }
 
-                    # Update Cookie Jar
                     if ($jobResult.Cookies) {
                         foreach ($newCookie in $jobResult.Cookies) {
-                            # Remove existing cookie with same name/domain/path
                             $existing = $null
                             foreach ($c in $script:cookieJar) {
                                 if ($c.Name -eq $newCookie.Name -and $c.Domain -eq $newCookie.Domain -and $c.Path -eq $newCookie.Path) {
@@ -3840,7 +4785,6 @@ function New-APIForm {
                             }
                             if ($existing) { $script:cookieJar.Remove($existing) }
                             
-                            # Add if not expired
                             if (-not $newCookie.Expired) {
                                 [void]$script:cookieJar.Add($newCookie)
                             }
@@ -3849,7 +4793,6 @@ function New-APIForm {
 
                     $isAttachmentHeader = $headersNormalized.ContainsKey('content-disposition') -and $headersNormalized['content-disposition'] -like 'attachment*'
                     
-                    # Determine if the content is something we can render as text.
                     $isRenderable = $contentType -like 'text/*' -or 
                                     $contentType -like 'application/json*' -or 
                                     $contentType -like 'application/xml*' -or
@@ -3858,7 +4801,6 @@ function New-APIForm {
                                     $contentType -like 'image/*' -or
                                     $contentType -like 'text/html*'
 
-                    # Store the content type for the prettify button
                     $script:lastResponseContentType = $contentType
                     $script:btnExportResponse.Enabled = $isRenderable
                     $script:btnPrettifyResponse.Enabled = $isRenderable
@@ -3866,20 +4808,17 @@ function New-APIForm {
                     $finalSavePath = $null
 
                     $isBinaryResponse = (-not $isRenderable -and $res.Content.Length -gt 0)
-                    if ($isBinaryResponse -or $isAttachmentHeader) { # Check if we should try to save the file
-                        if ($script:settings.AutoSaveToFile -and [System.IO.Directory]::Exists($script:settings.AutoSavePath)) { # Auto-save is enabled
-                            # Auto-Save is enabled.
+                    if ($isBinaryResponse -or $isAttachmentHeader) { 
+                        if ($script:settings.AutoSaveToFile -and [System.IO.Directory]::Exists($script:settings.AutoSavePath)) { 
                             $targetFolder = $script:settings.AutoSavePath
                             $fileNameFromHeader = $null
                             if ($headersNormalized.ContainsKey('content-disposition') -and $headersNormalized['content-disposition'] -match 'filename="?([^"]+)"?') {
-                                $fileNameFromHeader = $matches[1] # Extract filename from header
+                                $fileNameFromHeader = $matches[1] 
                             }
                             
                             if ($fileNameFromHeader) {
-                                $outputFileName = $fileNameFromHeader # Start with filename from header
-                                # Apply auto-rename logic if enabled.
+                                $outputFileName = $fileNameFromHeader 
                                 if ($script:settings.AutoRenameFile) {
-                                    # Find all keys in the form body that correspond to file uploads.
                                     $fileUploads = @($script:formBody.GetEnumerator() | Where-Object { $_.Value -is [hashtable] -and $_.Value.ContainsKey('_Path') })
 
                                     $prefix = if ($script:settings.EnableAutoRenamePrefix) { $script:settings.AutoRenamePrefix } else { "" }
@@ -3902,11 +4841,10 @@ function New-APIForm {
                                 $richTextResponse.Text = "Auto-save is enabled, but the server response did not include a 'filename' in the Content-Disposition header. Cannot save the file."
                             }
                         } elseif (-not [string]::IsNullOrWhiteSpace($script:textOutputFile.Text)) {
-                            # Manual output file is specified.
                             $finalSavePath = $script:textOutputFile.Text
                         }
                     }
-                    if ($finalSavePath) { # If a save path was determined, write the file
+                    if ($finalSavePath) { 
                         try {
                             $parentDir = [System.IO.Path]::GetDirectoryName($finalSavePath)
                             if (-not (Test-Path $parentDir)) { [System.IO.Directory]::CreateDirectory($parentDir) | Out-Null }
@@ -3920,10 +4858,10 @@ function New-APIForm {
                             Write-Log "Error saving file: $($_.Exception.Message)" -Level Info
                             $script:lastResponseText = ""
                         }
-                    } elseif ($isRenderable -or $res.Content.Length -eq 0) { # If not saving, try to render it
+                    } elseif ($isRenderable -or $res.Content.Length -eq 0) { 
                         $responseContent = if ($res.Content) { [System.Text.Encoding]::UTF8.GetString($res.Content) } else { "" }
                         $script:lastResponseText = $responseContent
-                        $tabControlResponse.TabPages.Remove($tabPreview) # Remove preview tab by default
+                        $tabControlResponse.TabPages.Remove($tabPreview) 
                         $webBrowserPreview.Visible = $false
                         $pictureBoxPreview.Visible = $false
 
@@ -3932,23 +4870,22 @@ function New-APIForm {
                             $richTextResponse.Rtf = $responseContent
                             Write-Log "Rendering response as RTF."
                         } elseif ($contentType -like 'application/json*') {
-                            $jsonObj = $responseContent | ConvertFrom-Json # Validate JSON
+                            $jsonObj = $responseContent | ConvertFrom-Json 
                             Populate-JsonTree -JsonData $jsonObj -NodesCollection $treeViewJson.Nodes
                             $richTextResponse.Rtf = Format-JsonAsRtf -JsonString $responseContent -FontSize $script:settings.ResponseFontSize
                             Write-Log "Rendering response as formatted JSON."
                         } elseif ($contentType -like 'application/xml*' -or $contentType -like 'text/xml*') {
-                        # Check if the JSON is a redline document
                         if ($jsonBodyForTest -and $jsonBodyForTest._type -eq 'redlinedocument') {
                             $richTextResponse.Rtf = Format-RedlineAsRtf -RedlineJson $jsonBodyForTest -FontSize $script:settings.ResponseFontSize
                             Write-Log "Rendering response as a formatted Redline Document."
                         }
-                            $richTextResponse.Text = ([xml]$responseContent).OuterXml # Format XML
+                            $richTextResponse.Text = ([xml]$responseContent).OuterXml 
                             Write-Log "Rendering response as formatted XML."
                         } elseif ($contentType -like 'text/html*') {
                                 $webBrowserPreview.Visible = $true
                                 $webBrowserPreview.DocumentText = $responseContent
-                                $tabControlResponse.TabPages.Add($tabPreview) # Add preview tab
-                                $richTextResponse.Text = $responseContent # Also show raw text
+                                $tabControlResponse.TabPages.Add($tabPreview) 
+                                $richTextResponse.Text = $responseContent 
                                 Write-Log "Rendering response as HTML."
                             } elseif ($contentType -like 'image/*') {
                                 $ms = New-Object System.IO.MemoryStream(,$res.Content)
@@ -3958,7 +4895,6 @@ function New-APIForm {
                                 $richTextResponse.Text = "[Binary Image Data: $contentType]"
                                 Write-Log "Rendering response as Image."
                             } else {
-                                # Fallback for other text-based types
                                 $richTextResponse.Text = $responseContent
                             }
                         }
@@ -3966,7 +4902,6 @@ function New-APIForm {
                             $richTextResponse.Text = $responseContent 
                             Write-Log "Failed to render rich content, showing as plain text."
                         }
-                        # Execute user-defined tests against the response.
                         if (-not [string]::IsNullOrWhiteSpace($testsRaw)) {
                             $script:testResults.Clear()
                             $testScriptBlock = [scriptblock]::Create($testsRaw)
@@ -3977,7 +4912,6 @@ function New-APIForm {
                                     $jsonBodyForTest = [System.Text.Encoding]::UTF8.GetString($res.Content) | ConvertFrom-Json -ErrorAction Stop
                                 }
                             } catch {
-                                # If JSON parsing fails, $jsonBodyForTest will remain $null.
                             }
 
                             $testScopeVars = @{
@@ -3988,7 +4922,6 @@ function New-APIForm {
                             }
 
                             try {
-                            # Define the functions within the scope of the Invoke-Command
                             $fullTestScript = @"
                             $(Get-Command Assert-Equal | Select-Object -ExpandProperty Definition)
                             $(Get-Command Assert-Contains | Select-Object -ExpandProperty Definition)
@@ -4003,19 +4936,18 @@ function New-APIForm {
                             $richTextTestResults.Rtf = Format-TestResultsAsRtf -Results $script:testResults -FontSize $script:settings.ResponseFontSize
                             $tabControlResponse.SelectedTab = $tabTestResults
                         }
-                    } else { # This is now the case for unrenderable binary content with no save path
+                    } else { 
                         $richTextResponse.Text = "Cannot render binary response in the UI.`n`nContent-Type: $contentType`nSize: $(Format-Bytes -bytes $res.Content.Length)`n`nTo save this response, specify an 'Output File' or enable 'Auto-Save' and send the request again."
                         $script:lastResponseText = ""
                     }
                 }
-                elseif ($jobResult) { # This handles the case where the job did not succeed
-                    # Job failed but we might still have error data
+                elseif ($jobResult) { 
                     if ($script:isRepeating) { $script:repeatFailCount++ }
                     $res = $jobResult.Data
                     if ($res -and $res.errorBody) {
-                        $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#dc3545") # Red
+                        $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#dc3545") 
                         $statusLabelStatus.Text = "Request Failed"
-                        $statusLabelTime.Text = "Time: $($res.ElapsedTime) ms" # Display elapsed time even on error
+                        $statusLabelTime.Text = "Time: $($res.ElapsedTime) ms" 
                         $statusLabelSize.Text = "Size: N/A"
                         try {
                             $null = $res.errorBody | ConvertFrom-Json
@@ -4025,27 +4957,24 @@ function New-APIForm {
                         }
                         $script:lastResponseText = $res.errorBody
                     } else {
-                        $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#dc3545") # Red
+                        $statusStrip.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#dc3545") 
                         $statusLabelStatus.Text = "Request Failed"
-                        $richTextResponse.Text = $jobResult.ErrorMessage # Display generic job error message
+                        $richTextResponse.Text = $jobResult.ErrorMessage 
                         $script:lastResponseText = $jobResult.ErrorMessage
                     }
                 }
 
             }
             
-            # Cleanup Runspace
             if ($script:currentPowerShell) { $script:currentPowerShell.Dispose() }
             $script:currentPowerShell = $null
             $script:currentAsyncResult = $null
             
-            # --- Collection Runner Logic ---
             if ($script:isCollectionRunning) {
                 $script:collectionRunCompleted++
                 if ($script:collectionRunnerProgress) { $script:collectionRunnerProgress.Value = $script:collectionRunCompleted }
                 if ($script:collectionRunnerSummaryLabel) { $script:collectionRunnerSummaryLabel.Text = "Progress: $($script:collectionRunCompleted)/$($script:collectionRunTotal)" }
 
-                # Update Grid Status
                 if ($script:collectionRunnerCurrentRow) {
                     $row = $script:collectionRunnerCurrentRow
                     if ($jobResult.Success) {
@@ -4058,7 +4987,6 @@ function New-APIForm {
                         $row.Cells["Result"].Value = if ($jobResult.Data) { "$($jobResult.Data.StatusCode) $($jobResult.Data.StatusDescription)" } else { $jobResult.ErrorMessage }
                         $row.DefaultCellStyle.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#f8d7da")
                     }
-                    # Test Summary
                     if ($script:testResults) {
                         $passCount = ($script:testResults | Where-Object { $_.Status -eq 'PASS' }).Count
                         $failCount = ($script:testResults | Where-Object { $_.Status -ne 'PASS' }).Count
@@ -4066,11 +4994,12 @@ function New-APIForm {
                     }
                 }
 
-                # Stop on Failure Check
                 $isFailure = (-not $jobResult.Success) -or ($jobResult.Data.StatusCode -ge 400)
                 if ($script:collectionRunStopOnFail -and $isFailure) {
                     $script:isCollectionRunning = $false
                     if ($script:collectionRunnerSummaryLabel) { $script:collectionRunnerSummaryLabel.Text = "Stopped due to failure." }
+#endregion
+#region GUI Initialization and Layout
                     if ($script:collectionRunnerForm) { $script:collectionRunnerForm.Tag.btnStart.Enabled = $true; $script:collectionRunnerForm.Tag.btnStart.Text = "Start Run" }
                     return
                 }
@@ -4080,7 +5009,6 @@ function New-APIForm {
                     $script:collectionRunnerCurrentRow = $nextRow
                     $nextRow.Cells["Status"].Value = "Running..."
                     
-                    # Delay Logic
                     $delay = [Math]::Max(50, $script:collectionRunDelay)
                     $delayTimer = New-Object System.Windows.Forms.Timer
                     $delayTimer.Interval = $delay
@@ -4091,7 +5019,7 @@ function New-APIForm {
                         Invoke-RequestExecution
                     })
                     $delayTimer.Start()
-                    return # Exit tick to wait for delay
+                    return 
                 } else {
                     $script:isCollectionRunning = $false
                     if ($script:collectionRunnerSummaryLabel) { $script:collectionRunnerSummaryLabel.Text = "Run Complete." }
@@ -4099,34 +5027,37 @@ function New-APIForm {
                 }
             }
 
-            # Handle repeat requests *after* cleaning up the completed runspace.
             if ($script:isRepeating -eq $true) {
                 $script:currentRepeatIteration++
                 if ($script:currentRepeatIteration -lt $script:repeatCount) {
+#endregion
+#region Logging
                     Write-Log "Repeat Request: Iteration $($script:currentRepeatIteration) of $($script:repeatCount) completed. Sending next request..." -Level Debug
                     $statusLabelStatus.Text = "Repeating Request ($($script:currentRepeatIteration + 1)/$($script:repeatCount))... (Success: $($script:repeatSuccessCount), Fail: $($script:repeatFailCount))"
                     
+#endregion
+#region GUI Initialization and Layout
                     $repeatDelayTimer = New-Object System.Windows.Forms.Timer
-                    $repeatDelayTimer.Interval = 200 # A small delay to allow UI to update
+                    $repeatDelayTimer.Interval = 200 
                     $repeatDelayBlock = { 
-                        param($sender, $e) # Use param block to get the timer object that fired the event
-                        Invoke-RequestExecution # Call the core logic directly, bypassing the button click
-                        $sender.Stop() # Stop and dispose the timer using the sender parameter
+                        param($sender, $e) 
+                        Invoke-RequestExecution 
+                        $sender.Stop() 
                         $sender.Dispose()
                     }
                     $repeatDelayTimer.Add_Tick($repeatDelayBlock)
                     $repeatDelayTimer.Start()
-                    return # Exit the main timer tick; the delay timer will fire the next request.
+                    return 
                 } else {
-                    # All repeats are done
                     $finalStatus = "Repeat Request Completed ($($script:repeatCount) iterations). Success: $($script:repeatSuccessCount), Fail: $($script:repeatFailCount)."
+#endregion
+#region Logging
                     Write-Log $finalStatus -Level Info
                     $statusLabelStatus.Text = $finalStatus
                     $script:isRepeating = $false
                 }
             }
             
-            # This code runs if not repeating, or if the last repeat has just finished.
             if (-not $script:isCollectionRunning) {
                 $btnSubmit.Enabled = $true; $btnSubmit.BackColor = $script:Theme.PrimaryButton
                 $btnCancel.Enabled = $false
@@ -4135,48 +5066,53 @@ function New-APIForm {
         }
     })
 
-# This function contains the core logic for preparing and executing an API request.
-# It's separated from the UI button's click event to allow for programmatic re-triggering (e.g., for repeating requests).
+<#
+.SYNOPSIS
+    Invoke function.
+.DESCRIPTION
+    Handles logic related to Invoke.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Invoke-RequestExecution {
-    # Clear previous response and test results.
     $richTextResponse.Text = ""
     $richTextResponseHeaders.Text = ""
     $richTextCode.Text = ""
     $treeViewJson.Nodes.Clear()
-    $script:btnExportResponse.Enabled = $false # Disable export button for new request
-    $script:btnPrettifyResponse.Enabled = $false # Disable prettify button for new request
+    $script:btnExportResponse.Enabled = $false 
+    $script:btnPrettifyResponse.Enabled = $false 
     $richTextTestResults.Text = ""
     $script:lastResponseText = ""
     $script:lastResponseHeadersText = ""
     $script:lastResponseHeadersNormalized = @{}
 
-    # Reset the status bar for the new request.
     if (-not $script:isCollectionRunning) {
         $statusStrip.BackColor = $script:Theme.PrimaryButton
     }
     $statusLabelStatus.Text = "Sending request..."
     $statusLabelTime.Text = "Time: ..."
     $statusLabelSize.Text = "Size: ..."
-    $form.Refresh() # Force UI update
+    $form.Refresh() 
     Write-Log "Request execution started."
     
-    # Substitute environment variables into all relevant fields.
     $script:activeEnvironment = $script:comboEnvironment.SelectedItem
 
-    # --- Pre-request Script Execution ---
     if (-not [string]::IsNullOrWhiteSpace($script:textPreRequest.Text)) {
         try {
             Write-Log "Executing Pre-request script..."
             if ($script:activeEnvironment -ne "No Environment" -and $script:environments.ContainsKey($script:activeEnvironment)) {
-                $Environment = $script:environments[$script:activeEnvironment]
-            } else { $Environment = @{} }
+                $environment = $script:environments[$script:activeEnvironment]
+            } else { $environment = @{} }
             
             Invoke-Command -ScriptBlock ([scriptblock]::Create($script:textPreRequest.Text)) -NoNewScope
             Write-Log "Pre-request script executed successfully."
         } catch {
             Write-Log "Pre-request script failed: $($_.Exception.Message)"
+#endregion
+#region GUI Initialization and Layout
             [System.Windows.Forms.MessageBox]::Show("Pre-request script failed:`n$($_.Exception.Message)", "Error", "OK", "Error")
-            # Re-enable buttons on script failure
             $btnSubmit.Enabled = $true; $btnCancel.Enabled = $false; $btnRepeat.Enabled = $true; return
         }
     }
@@ -4187,26 +5123,26 @@ function Invoke-RequestExecution {
     $bodyRaw = (Substitute-Variables -InputString $script:textBody.Text)
     $testsRaw = $script:textTests.Text
 
-    # --- GraphQL Logic ---
     if ($script:comboBodyType.SelectedItem -eq "GraphQL") {
         $gqlQuery = (Substitute-Variables -InputString $script:txtGqlQuery.Text)
         $gqlVars = (Substitute-Variables -InputString $script:txtGqlVars.Text)
         $payload = @{ query = $gqlQuery }
         if (-not [string]::IsNullOrWhiteSpace($gqlVars)) {
+#endregion
+#region Logging
             try { $payload['variables'] = $gqlVars | ConvertFrom-Json } catch { Write-Log "Invalid GraphQL Variables JSON" }
         }
         $bodyRaw = $payload | ConvertTo-Json -Depth 10
-        $bodyType = "application/json" # Send as JSON
-        $method = "POST" # GraphQL is typically POST
+        $bodyType = "application/json" 
+        $method = "POST" 
     }
 
     $outputFormat = $script:textOutputFormat.Text
     if ($script:comboBodyType.SelectedItem -ne "GraphQL") { $bodyType = $script:comboBodyType.SelectedItem.ToString() }
-    # Determine the correct output path based on whether Auto-Save is enabled.
     if ($script:settings.AutoSaveToFile) {
-        $outputFile = $script:settings.AutoSavePath # Use the path from settings
+        $outputFile = $script:settings.AutoSavePath 
     } else {
-        $outputFile = $script:activeRequestTab.TextOutputFile.Text # Use the path from the visible text box
+        $outputFile = $script:activeRequestTab.TextOutputFile.Text 
     }
     
     $includeFilename = $checkIncludeFilename.Checked
@@ -4215,7 +5151,6 @@ function Invoke-RequestExecution {
     $ignoreSsl = $script:settings.IgnoreSslErrors
     $timeoutSeconds = $script:settings.RequestTimeoutSeconds
     
-    # Store request state for code generation
     $script:lastRequestState = [PSCustomObject]@{
         Method = $method
         Url = $url
@@ -4237,13 +5172,13 @@ function Invoke-RequestExecution {
 
     if (-not $url) {
     Write-Log "URL is empty. Showing message box."
+#endregion
+#region GUI Initialization and Layout
     [System.Windows.Forms.MessageBox]::Show("Please enter a valid URL.")
     return
     }
 
-    # Only add to history on the first request of a repeat sequence, or for a normal request.
     if ($script:settings.EnableHistory -and -not $script:isRepeating -and -not $script:isCollectionRunning) {
-        # Create and save a history entry for the current request.
         $historyEntry = [PSCustomObject]@{
             Timestamp = Get-Date
             Method    = $method
@@ -4255,7 +5190,7 @@ function Invoke-RequestExecution {
             Tests     = $testsRaw
             PreRequestScript = $script:textPreRequest.Text
             Environment = $script:comboEnvironment.SelectedItem
-            Authentication = (& $script:authPanel.GetAuthData) # Use the helper to get auth data
+            Authentication = (& $script:authPanel.GetAuthData) 
         }
         $script:history = @($historyEntry) + $script:history
         if ($script:history.Count -gt 50) { $script:history = $script:history[0..49] }
@@ -4266,7 +5201,6 @@ function Invoke-RequestExecution {
         Save-History
     }
 
-    # Parse user-provided headers from the textbox into a hashtable.
     $headers = @{}
     foreach ($line in $headersRaw -split "`n") {
     if ($line -match "^\s*(.+?):\s*(.+)$") {
@@ -4274,12 +5208,10 @@ function Invoke-RequestExecution {
     }
     }
 
-    # Apply authentication details to the request headers or URL.
     $authHeader = $null
     $currentAuth = & $script:authPanel.GetAuthData
     switch ($currentAuth.Type) {
         "Auth2" {
-            # Pre-flight check for token expiry
             $tokenIsExpired = $false
             if ($currentAuth.TokenExpiryTimestamp) {
                 try {
@@ -4288,6 +5220,8 @@ function Invoke-RequestExecution {
                         $tokenIsExpired = $true
                     }
                 } catch {
+#endregion
+#region Logging
                     Write-Log "Could not parse Auth2 TokenExpiryTimestamp: $($currentAuth.TokenExpiryTimestamp)" -Level Info
                 }
             }
@@ -4299,11 +5233,12 @@ function Invoke-RequestExecution {
                         grant_type    = 'refresh_token'
                         refresh_token = $currentAuth.RefreshToken
                         client_id     = $currentAuth.ClientId
-                        client_secret = $currentAuth.ClientSecret # Some providers require this
+                        client_secret = $currentAuth.ClientSecret 
                     }
+#endregion
+#region API Execution
                     $tokenResponse = Invoke-RestMethod -Uri $currentAuth.TokenEndpoint -Method Post -Body $refreshBody -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
                     
-                    # Update UI and current auth data with the new token
                     $currentAuth.AccessToken = $tokenResponse.access_token
                     $script:authPanel.TextAuth2AccessToken.Text = $tokenResponse.access_token
                     
@@ -4315,10 +5250,13 @@ function Invoke-RequestExecution {
                     $currentAuth.TokenExpiryTimestamp = ([DateTime]::UtcNow).AddSeconds([int]$tokenResponse.expires_in)
                     $script:authPanel.TextAuth2AccessToken.Tag = $currentAuth.TokenExpiryTimestamp
                     
+#endregion
+#region Logging
                     Write-Log "Auth2 token successfully refreshed." -Level Info
                 } catch {
+#endregion
+#region GUI Initialization and Layout
                     [System.Windows.Forms.MessageBox]::Show("Failed to automatically refresh access token. Please get a new token manually.`n`nError: $($_.Exception.Message)", "Token Refresh Failed", "OK", "Error")
-                    # Stop the request by re-enabling the submit button and returning
                   $btnSubmit.Enabled = $true; $btnCancel.Enabled = $false; $btnRepeat.Enabled = $true; return
                 }
             }
@@ -4327,26 +5265,25 @@ function Invoke-RequestExecution {
             if (-not ([string]::IsNullOrWhiteSpace($currentAuth.Key) -or [string]::IsNullOrWhiteSpace($currentAuth.Value))) {
                 if ($currentAuth.AddTo -eq "Header") {
                     $headers[$currentAuth.Key] = $currentAuth.Value
-                } else { # Query Params
+                } else { 
                     $separator = if ($url -like '*?*') { '&' } else { '?' }
                     $url += "$separator$([uri]::EscapeDataString($currentAuth.Key))=$([uri]::EscapeDataString($currentAuth.Value))"
                 }
             }
         }
         "Bearer Token" {
-            if (-not [string]::IsNullOrWhiteSpace($currentAuth.Token)) { # Only add if token is not empty
+            if (-not [string]::IsNullOrWhiteSpace($currentAuth.Token)) { 
                 $authHeader = "Bearer $($currentAuth.Token)"
             }
         }
         "Basic Auth" {
-            if (-not ([string]::IsNullOrWhiteSpace($currentAuth.Username))) { # Only add if username is not empty
+            if (-not ([string]::IsNullOrWhiteSpace($currentAuth.Username))) { 
                 $credentials = [System.Text.Encoding]::UTF8.GetBytes("$($currentAuth.Username):$($currentAuth.Password)")
                 $authHeader = "Basic $([System.Convert]::ToBase64String($credentials))"
             }
         }
-    } # End of switch ($currentAuth.Type)
+    } 
     
-    # Client Certificate Logic (Prepare data for job)
     $clientCertData = $null
     if ($currentAuth.Type -eq "Client Certificate") {
         $clientCertData = @{
@@ -4359,34 +5296,33 @@ function Invoke-RequestExecution {
 
     if ($authHeader) { $headers["Authorization"] = $authHeader }
     
-    # Construct the request body
     $script:formBody = @{}
-    $script:formBody.Clear() # Clear any data from a previous request
+    $script:formBody.Clear() 
     if ($bodyType -eq "multipart/form-data") {
+#endregion
+#region Logging
         Write-Log "Parsing Body as multipart/form-data..."
-        foreach ($line in $bodyRaw -split "`n" | Where-Object { $_ -match '\S' }) { # Process non-empty lines
+        foreach ($line in $bodyRaw -split "`n" | Where-Object { $_ -match '\S' }) { 
             if ($line -match '^\s*([^=]+?)\s*=\s*@("([^"]+)"|([^;`\r`n]+))((?:;[^=]+=[^;]+)*)\s*$') {
                 $key = $matches[1].Trim()
-                $filePath = if ($matches[3]) { $matches[3] } else { $matches[4] } # Correctly get path if quoted (group 3) or not (group 4)
+                $filePath = if ($matches[3]) { $matches[3] } else { $matches[4] } 
                 $attributesRaw = $matches[5]
 
                 if (Test-Path $filePath) {
-                    # Pass a simple hashtable with path/name/metadata so it serializes safely across Start-Job.
                     $fileObject = @{
                         _Path = $filePath
                         Name  = ([System.IO.Path]::GetFileName($filePath))
-                        IncludeFilename = $false # Default to false, check attributes
-                        IncludeContentType = $false # Default to false, check attributes
+                        IncludeFilename = $false 
+                        IncludeContentType = $false 
                     }
                     if ($attributesRaw -match 'filename=([^;`\r`n]+)') {
-                        $fileObject.Name = $matches[1].Trim() # Override filename from attribute
+                        $fileObject.Name = $matches[1].Trim() 
                         $fileObject.IncludeFilename = $true
                     }
                     if ($attributesRaw -match 'type=([^;`\r`n]+)') {
-                        $fileObject.ContentType = $matches[1].Trim() # Override content type from attribute
+                        $fileObject.ContentType = $matches[1].Trim() 
                         $fileObject.IncludeContentType = $true
                     }
-                    # If the global checkbox is checked but no type attribute was specified, get it now.
                     if ($includeContentType -and -not $fileObject.ContainsKey('ContentType')) {
                         $fileObject.ContentType = Get-MimeType -filePath $filePath
                     }
@@ -4396,7 +5332,7 @@ function Invoke-RequestExecution {
                 } else {
                     Write-Log "File not found, skipping: '$filePath'"
                 }
-            } elseif ($line -match '^\s*([^=]+?)\s*=\s*(.*)') { # Regular key-value (allow empty values)
+            } elseif ($line -match '^\s*([^=]+?)\s*=\s*(.*)') { 
                 $key = $matches[1].Trim()
                 $value = $matches[2].Trim()
                 $script:formBody[$key] = $value
@@ -4406,7 +5342,6 @@ function Invoke-RequestExecution {
         if ($outputFormat) { $script:formBody["outputFormat"] = $outputFormat }
     }
 
-    # Generate Code Snippet
     $selectedLang = if ($script:comboCodeLanguage.SelectedItem) { $script:comboCodeLanguage.SelectedItem } else { "cURL" }
     $richTextCode.Text = Generate-CodeSnippet -RequestItem $script:lastRequestState -Language $selectedLang
 
@@ -4415,12 +5350,21 @@ function Invoke-RequestExecution {
         Write-Log "Generated cURL:`r`n$debugCurl"
     }
 
-    # --- Build multipart body bytes on the main thread to avoid Start-Job serialization issues ---
-    $multipartBytes = $null # Initialize
-    $multipartContentType = $null # Initialize
+    $multipartBytes = $null 
+    $multipartContentType = $null 
     if ($bodyType -eq "multipart/form-data") {
         $boundary = "---------------------------" + [System.Guid]::NewGuid().ToString("N")
         $encoding = [System.Text.Encoding]::GetEncoding("iso-8859-1")
+<#
+.SYNOPSIS
+    Write function.
+.DESCRIPTION
+    Handles logic related to Write.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
         function Write-To-StreamLocal { param([System.IO.MemoryStream]$s, [string]$t) $b = $encoding.GetBytes($t); $s.Write($b,0,$b.Length) }
         $ms = New-Object System.IO.MemoryStream
         foreach ($key in $script:formBody.Keys) {
@@ -4440,7 +5384,7 @@ function Invoke-RequestExecution {
                 $field = [string]$val
                 Write-To-StreamLocal -s $ms -t "Content-Disposition: form-data; name=`"$key`"`r`n`r`n$field`r`n"
             }
-        } # End of foreach ($key in $script:formBody.Keys)
+        } 
         Write-To-StreamLocal -s $ms -t "--$boundary--`r`n"
         $ms.Seek(0,'Begin') | Out-Null
         $multipartBytes = $ms.ToArray()
@@ -4448,12 +5392,10 @@ function Invoke-RequestExecution {
         $ms.Close()
     }
 
-    # Prepare Cookies for Job
     $inputCookies = @()
     if ($script:cookieJar.Count -gt 0) {
         $uri = New-Object System.Uri($url)
         foreach ($c in $script:cookieJar) {
-            # Simple domain matching
             if ($uri.Host.EndsWith($c.Domain.TrimStart('.')) -or $c.Domain.TrimStart('.') -eq $uri.Host) {
                 $inputCookies += $c
             }
@@ -4461,10 +5403,19 @@ function Invoke-RequestExecution {
     }
     $proxySettings = @{ Mode=$script:settings.ProxyMode; Address=$script:settings.ProxyAddress; Port=$script:settings.ProxyPort; User=$script:settings.ProxyUser; Pass=$script:settings.ProxyPass }
     
-    # This script block is executed in a background job to keep the UI responsive.
-    $scriptBlock = { #region Start-Job ScriptBlock 
+    $scriptBlock = { 
         param($url, $method, $headers, $bodyRaw, $bodyType, $formBody, $outputFile, $includeFilename, $includeContentType, $outputFormat, $multipartBytes, $multipartContentType, $ignoreSsl, $timeoutSeconds, $proxySettings, $clientCertData, $inputCookies)
 
+<#
+.SYNOPSIS
+    Format function.
+.DESCRIPTION
+    Handles logic related to Format.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
         function Format-Bytes {
             param([long]$bytes)
             if ($bytes -lt 0) { return "N/A" }
@@ -4480,7 +5431,17 @@ function Invoke-RequestExecution {
         $result = @{ Success = $false; Data = $null; ErrorMessage = "" }
         try {
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            function Job-Log { param([string]$Message) Write-Verbose "JOB: $Message" } # Use Verbose to avoid polluting output
+<#
+.SYNOPSIS
+    Job function.
+.DESCRIPTION
+    Handles logic related to Job.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
+            function Job-Log { param([string]$message) Write-Verbose "JOB: $message" } 
             Job-Log "Starting request to $url"
 
             if ($ignoreSsl) {
@@ -4491,7 +5452,6 @@ function Invoke-RequestExecution {
             $req.Method = $method
             $req.Timeout = $timeoutSeconds * 1000
             
-            # Proxy Configuration
             if ($proxySettings.Mode -eq 'Custom') {
                 $proxy = New-Object System.Net.WebProxy($proxySettings.Address, $proxySettings.Port)
                 if ($proxySettings.User) {
@@ -4505,7 +5465,6 @@ function Invoke-RequestExecution {
                 $req.Proxy.Credentials = [System.Net.CredentialCache]::DefaultCredentials
             }
 
-            # Client Certificates
             if ($clientCertData) {
                 if ($clientCertData.Source -eq "PFX File" -and (Test-Path $clientCertData.Path)) {
                     $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($clientCertData.Path, $clientCertData.Password)
@@ -4519,22 +5478,19 @@ function Invoke-RequestExecution {
                 }
             }
 
-            # Cookies
             $req.CookieContainer = New-Object System.Net.CookieContainer
             if ($inputCookies) {
                 foreach ($c in $inputCookies) {
-                    # Reconstruct cookie to ensure it attaches to container
                     $req.CookieContainer.Add($c)
                 }
             }
 
             foreach ($key in $headers.Keys) { 
-                if ($key -ne 'Content-Type') { # Content-Type is set automatically for body, avoid double-setting
+                if ($key -ne 'Content-Type') { 
                     $req.Headers.Add($key, $headers[$key]) 
                 }
             }
 
-            # Only attempt to write a request body for methods that support it.
             if ($method -in @('POST', 'PUT', 'PATCH')) {
                 if ($bodyType -eq "multipart/form-data" -and $multipartBytes) {
                     $req.ContentType = $multipartContentType
@@ -4544,6 +5500,10 @@ function Invoke-RequestExecution {
                     $rs.Write($multipartBytes, 0, $multipartBytes.Length)
                     $rs.Close()
                 } elseif ($bodyType -eq "multipart/form-data") {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
                     Job-Log "Multipart Form-Data Logic: No bytes"
                 } else {
                     if (-not [string]::IsNullOrEmpty($bodyRaw)) {
@@ -4555,8 +5515,8 @@ function Invoke-RequestExecution {
                         $requestStream.Write($bodyBytes, 0, $bodyBytes.Length)
                         $requestStream.Close()
                     }
-                } # End of if (-not [string]::IsNullOrEmpty($bodyRaw))
-            } # End of body-writing logic
+                } 
+            } 
 
             $response = $req.GetResponse()
             $stopwatch.Stop()
@@ -4581,7 +5541,7 @@ function Invoke-RequestExecution {
                 Cookies           = $resCookies
                 RawContentLength  = $response.ContentLength
             }
-        } # End of try
+        } 
         catch {
             $stopwatch.Stop()
             $result.ErrorMessage = $_.Exception.Message
@@ -4602,11 +5562,10 @@ function Invoke-RequestExecution {
             } else {
                 $result.Data = @{ ElapsedTime = $stopwatch.ElapsedMilliseconds }
             }
-        } # End of catch
+        } 
         return $result
-    } #endregion
+    } 
 
-    # Use Runspace (PowerShell instance) instead of Start-Job for better performance
     if ($script:currentPowerShell) { $script:currentPowerShell.Dispose(); $script:currentPowerShell = $null }
     $script:currentPowerShell = [PowerShell]::Create()
     $script:currentPowerShell.AddScript($scriptBlock).AddArgument($url).AddArgument($method).AddArgument($headers).AddArgument($bodyRaw).AddArgument($bodyType).AddArgument($formBody).AddArgument($outputFile).AddArgument($includeFilename).AddArgument($includeContentType).AddArgument($outputFormat).AddArgument($multipartBytes).AddArgument($multipartContentType).AddArgument($ignoreSsl).AddArgument($timeoutSeconds).AddArgument($proxySettings).AddArgument($clientCertData).AddArgument($inputCookies) | Out-Null
@@ -4616,21 +5575,31 @@ function Invoke-RequestExecution {
     $script:requestTimer.Start()
 }
 
-    # --- Collection Runner Window ---
+<#
+.SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Show-CollectionRunnerWindow {
         param(
-            [PSCustomObject]$Item,
+            [PSCustomObject]$item,
+#endregion
+#region GUI Initialization and Layout
             [System.Windows.Forms.Form]$parentForm
         )
 
         $runnerForm = New-Object System.Windows.Forms.Form -Property @{
-            Text          = "Collection Runner: $($Item.Name)"
+            Text          = "Collection Runner: $($item.Name)"
             Size          = New-Object System.Drawing.Size(900, 700)
             StartPosition = "CenterParent"
             BackColor     = $script:Theme.FormBackground
         }
 
-        # --- Layout ---
         $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
             Dock        = 'Fill'
             ColumnCount = 1
@@ -4641,7 +5610,6 @@ function Invoke-RequestExecution {
         $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
         $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
 
-        # --- Top Panel (Summary & Progress) ---
         $topPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Fill'; AutoSize = $true; ColumnCount = 2; RowCount = 2 }
         $topPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
         $topPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
@@ -4649,7 +5617,6 @@ function Invoke-RequestExecution {
         $summaryLabel = New-Label -Text "Ready to run." -Property @{ Dock = 'Fill'; Font = New-Object System.Drawing.Font("Segoe UI", 10); TextAlign = 'MiddleLeft' }
         $progress = New-Object System.Windows.Forms.ProgressBar -Property @{ Dock = 'Fill'; Margin = [System.Windows.Forms.Padding]::new(0, 5, 0, 5) }
         
-        # Settings Panel
         $settingsPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Fill'; AutoSize = $true; FlowDirection = 'LeftToRight'; WrapContents = $false }
         $lblDelay = New-Label -Text "Delay (ms):" -Property @{ AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0, 5, 5, 0) }
         $numDelay = New-Object System.Windows.Forms.NumericUpDown -Property @{ Minimum = 0; Maximum = 60000; Value = 0; Width = 60 }
@@ -4664,7 +5631,6 @@ function Invoke-RequestExecution {
         $topPanel.Controls.Add($settingsPanel, 1, 0)
         $topPanel.Controls.Add($progress, 0, 1); $topPanel.SetColumnSpan($progress, 2)
 
-        # --- Grid ---
         $grid = New-Object System.Windows.Forms.DataGridView -Property @{
             Dock               = 'Fill'
             ReadOnly           = $true
@@ -4688,7 +5654,6 @@ function Invoke-RequestExecution {
         $grid.Columns["Name"].AutoSizeMode = 'Fill'
         $grid.Columns["Result"].Width = 200
 
-        # --- Bottom Panel (Buttons) ---
         $bottomPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ FlowDirection = 'RightToLeft'; Dock = 'Fill'; AutoSize = $true }
         $btnStart = New-Button -Text "Start Run" -Style 'Primary' -Property @{ Width = 120; Height = 35 }
         $btnClose = New-Button -Text "Close" -Style 'Secondary' -Property @{ Width = 100; Height = 35 } -OnClick { $runnerForm.Close() }
@@ -4752,9 +5717,15 @@ function Invoke-RequestExecution {
             }
         }
         $btnExport = New-Button -Text "Export CSV" -Style 'Secondary' -Property @{ Width = 100; Height = 35; Margin = [System.Windows.Forms.Padding]::new(0,0,5,0) } -OnClick {
+#endregion
+#region Logging
             $sfd = New-Object System.Windows.Forms.SaveFileDialog
             $sfd.Filter = "CSV Files (*.csv)|*.csv"
             $sfd.FileName = "collection_run_results.csv"
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
             if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 $results = @()
                 foreach ($row in $grid.Rows) {
@@ -4767,6 +5738,8 @@ function Invoke-RequestExecution {
                     }
                 }
                 $results | Export-Csv -Path $sfd.FileName -NoTypeInformation -Encoding UTF8
+#endregion
+#region GUI Initialization and Layout
                 [System.Windows.Forms.MessageBox]::Show("Export successful.", "Export", "OK", "Information")
             }
         }
@@ -4776,22 +5749,30 @@ function Invoke-RequestExecution {
             foreach ($row in $grid.Rows) { $row.Cells["Run"].Value = $chkSelectAll.Checked }
         })
 
-        # --- Logic ---
+<#
+.SYNOPSIS
+    Get function.
+.DESCRIPTION
+    Handles logic related to Get.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
         function Get-RequestsRecursive {
-            param($NodeItem)
+            param($nodeItem)
             $requests = @()
-            if ($NodeItem.Type -eq "Request") {
-                $requests += $NodeItem
-            } elseif ($NodeItem.Items) {
-                foreach ($child in $NodeItem.Items) {
+            if ($nodeItem.Type -eq "Request") {
+                $requests += $nodeItem
+            } elseif ($nodeItem.Items) {
+                foreach ($child in $nodeItem.Items) {
                     $requests += Get-RequestsRecursive -NodeItem $child
                 }
             }
             return $requests
         }
-        $allRequests = Get-RequestsRecursive -NodeItem $Item
+        $allRequests = Get-RequestsRecursive -NodeItem $item
 
-        # Populate Grid
         $grid.Rows.Clear()
         foreach ($req in $allRequests) {
             $rowIndex = $grid.Rows.Add(@($true, $req.Name, "Queued", "", "", ""))
@@ -4799,7 +5780,6 @@ function Invoke-RequestExecution {
         }
 
         $btnStart.Add_Click({
-            # Reset state
             $script:collectionRunQueue.Clear()
             
             foreach ($row in $grid.Rows) {
@@ -4833,31 +5813,26 @@ function Invoke-RequestExecution {
             $script:collectionRunPassed = 0
             $script:collectionRunFailed = 0
 
-            # Reset UI
             $progress.Maximum = $script:collectionRunTotal
             $progress.Value = 0
             $summaryLabel.Text = "Starting run..."
 
-            # Disable button
             $this.Enabled = $false
             $btnRetry.Enabled = $false
             $this.Text = "Running..."
 
-            # Dequeue and run the first request
             if ($script:collectionRunQueue.Count -gt 0) {
                 $firstRow = $script:collectionRunQueue.Dequeue()
                 $script:collectionRunnerCurrentRow = $firstRow
                 $firstRow.Cells["Status"].Value = "Running..."
                 Load-Request-From-Object -RequestObject $firstRow.Tag.RequestData
                 
-                # Control main form buttons
                 $parentForm.Tag.btnSubmit.Enabled = $false
                 $parentForm.Tag.btnCancel.Enabled = $true
                 $parentForm.Tag.btnRepeat.Enabled = $false
                 
                 Invoke-RequestExecution
             } else {
-                # No requests to run
                 $summaryLabel.Text = "No requests found in this collection/folder."
                 $script:isCollectionRunning = $false
                 $this.Enabled = $true
@@ -4865,26 +5840,24 @@ function Invoke-RequestExecution {
             }
         })
 
-        # Store controls in the form's Tag so the main form can access them
         $runnerForm.Tag = [PSCustomObject]@{
             btnStart = $btnStart
             btnRetry = $btnRetry
         }
 
-        # Assemble form
         $mainLayout.Controls.Add($topPanel, 0, 0)
         $mainLayout.Controls.Add($grid, 0, 1)
         $mainLayout.Controls.Add($bottomPanel, 0, 2)
         $runnerForm.Controls.Add($mainLayout)
 
-        $runnerForm.Show($parentForm) # Show non-modally
+        $runnerForm.Show($parentForm) 
     }
 
     $script:monitorPool = $null
     $script:isHistoryUndocked = $false
-    $script:lastDockState = 'Bottom' # Initialize the last known dock state
-    $script:responseForm = $null # Initialize the undocked response form variable
-    $script:isMainFormClosing = $false # New flag to indicate if the main form is closing
+    $script:lastDockState = 'Bottom' 
+    $script:responseForm = $null 
+    $script:isMainFormClosing = $false 
     if ($script:settings.EnableHistory) {
         Load-History
     }
@@ -4894,10 +5867,8 @@ function Invoke-RequestExecution {
     Load-Monitors
     Load-Collections
 
-    # Initialize dock state from loaded settings, ensuring it's a valid state
     $script:responseDockState = $script:settings.ResponseDockState
 
-    # Create Form
     $form = New-Object System.Windows.Forms.Form -Property @{
         Text               = "PowerShell API Tester"
         Size               = New-Object System.Drawing.Size(1200, 1000)
@@ -4909,7 +5880,7 @@ function Invoke-RequestExecution {
     }
 
     $toolTip = New-Object System.Windows.Forms.ToolTip
-    $script:monitorJobs = @{} # Hash to store running monitor jobs
+    $script:monitorJobs = @{} 
 
     $statusStrip = New-Object System.Windows.Forms.StatusStrip
     $statusLabelStatus = New-Object System.Windows.Forms.ToolStripStatusLabel -Property @{
@@ -4928,7 +5899,6 @@ function Invoke-RequestExecution {
 
     $statusStrip.Items.AddRange(@($statusLabelStatus, $statusLabelTime, $statusLabelSize))
 
-    # --- Menu Strip and File Menu ---
     $menuStrip = New-Object System.Windows.Forms.MenuStrip
     $fileMenu = New-Object System.Windows.Forms.ToolStripMenuItem("&Menu")
     $toolsMenu = New-Object System.Windows.Forms.ToolStripMenuItem("&Tools")
@@ -4937,31 +5907,26 @@ function Invoke-RequestExecution {
     $menuStrip.ForeColor = $script:Theme.TextColor
 
 
-    # Initialize RunspacePool for background monitoring (Min 1, Max 5 concurrent tasks)
     $script:monitorPool = [runspacefactory]::CreateRunspacePool(1, 5)
     $script:monitorPool.Open()
 
-    # --- Monitoring System ---
     $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
     $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
     $notifyIcon.Visible = $true
     $notifyIcon.Text = "API Tester Monitor"
 
     $monitorTimer = New-Object System.Windows.Forms.Timer
-    $monitorTimer.Interval = 1000 # Tick every second
+    $monitorTimer.Interval = 1000 
     $monitorTimer.Add_Tick({
         $now = Get-Date
         foreach ($m in $script:monitors) {
             if ($m.Status -eq 'Running') {
                 $lastRun = if ($m.LastRun) { [DateTime]$m.LastRun } else { [DateTime]::MinValue }
                 
-                # Check if it's time to run (and not currently running)
                 if (($now - $lastRun).TotalSeconds -ge $m.IntervalSeconds -and -not $script:monitorJobs.ContainsKey($m.Id)) {
                     
-                    # Start Monitor Job
                     $m.LastRun = $now
                     
-                    # Simplified job script block for monitoring
                     $jobBlock = {
                         param($url, $method, $headers, $body, $bodyType)
                         param($url, $method, $headers, $body, $bodyType, $timeout)
@@ -4971,7 +5936,6 @@ function Invoke-RequestExecution {
                             $req.Method = $method
                             $req.Timeout = 30000
                             $req.Timeout = $timeout * 1000
-                            # Add headers/body logic here (simplified for brevity)
                             $resp = $req.GetResponse()
                             $sw.Stop()
                             return @{ Success=$true; StatusCode=[int]$resp.StatusCode; Time=$sw.ElapsedMilliseconds; Msg="OK" }
@@ -4989,7 +5953,6 @@ function Invoke-RequestExecution {
             }
         }
 
-        # Check running jobs
         $ids = @($script:monitorJobs.Keys)
         foreach ($id in $ids) {
             $entry = $script:monitorJobs[$id]
@@ -4998,11 +5961,11 @@ function Invoke-RequestExecution {
                 $entry.PS.Dispose()
                 $script:monitorJobs.Remove($id)
                 
-                # Alerting Logic
                 $mon = ($script:monitors | Where-Object {$_.Id -eq $id})
                 if ($mon) {
-                    # Log to CSV
                     try {
+#endregion
+#region Logging
                         $logEntry = [PSCustomObject]@{
                             Timestamp   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                             MonitorName = $mon.Name
@@ -5020,6 +5983,8 @@ function Invoke-RequestExecution {
                     if ($mon.Alerts.OnFailure -and (-not $res.Success -or $res.StatusCode -ne 200)) {
                         $alertMsg = "$($mon.Name) Failed: $($res.Msg)"
                         $alertType = "Failure"
+#endregion
+#region GUI Initialization and Layout
                         $notifyIcon.ShowBalloonTip(5000, "API Monitor Alert", $alertMsg, [System.Windows.Forms.ToolTipIcon]::Error)
                     } elseif ($mon.Alerts.OnSlow -and $res.Time -gt $mon.Alerts.ThresholdMs) {
                         $alertMsg = "$($mon.Name) Slow: $($res.Time)ms"
@@ -5027,7 +5992,6 @@ function Invoke-RequestExecution {
                         $notifyIcon.ShowBalloonTip(5000, "API Monitor Warning", $alertMsg, [System.Windows.Forms.ToolTipIcon]::Warning)
                     }
 
-                    # Email Alert
                     if ($alertMsg -and $mon.Alerts.SendEmail -and $mon.Alerts.EmailTo -and $script:settings.MonitorSmtpServer) {
                         try {
                             $alertData = @{
@@ -5037,6 +6001,8 @@ function Invoke-RequestExecution {
                                 Url = $mon.Request.Url
                                 TimeMs = $res.Time
                                 Message = $res.Msg
+#endregion
+#region Logging
                                 Timestamp = $logEntry.Timestamp
                             }
                             $subjectTemplate = if ($script:settings.MonitorAlertSubjectTemplate) { $script:settings.MonitorAlertSubjectTemplate } else { "API Alert: {MonitorName}" }
@@ -5047,7 +6013,6 @@ function Invoke-RequestExecution {
                             if ([string]::IsNullOrWhiteSpace($emailBody)) { $emailBody = $alertMsg }
 
                             if ($script:settings.MonitorSmtpAuthMethod -eq "OAuth2") {
-                                # Check for refresh
                                 if ($script:settings.MonitorSmtpRefreshToken -and $script:settings.MonitorSmtpTokenEndpoint) {
                                      $shouldRefresh = $false
                                      if ($script:settings.MonitorSmtpTokenExpiry) {
@@ -5077,7 +6042,6 @@ function Invoke-RequestExecution {
                         } catch { Write-Log "Failed to send email alert: $($_.Exception.Message)" -Level Info }
                     }
 
-                    # Analytics Webhook
                     if ($mon.AnalyticsUrl) {
                         try {
                             $payload = @{
@@ -5088,7 +6052,11 @@ function Invoke-RequestExecution {
                                 timeMs = $res.Time
                                 message = $res.Msg
                             } | ConvertTo-Json -Compress
+#endregion
+#region API Execution
                             Invoke-RestMethod -Uri $mon.AnalyticsUrl -Method Post -Body $payload -ContentType "application/json" -ErrorAction Stop
+#endregion
+#region Logging
                         } catch { Write-Log "Failed to send analytics for $($mon.Name): $($_.Exception.Message)" -Level Info }
                     }
                 }
@@ -5097,7 +6065,8 @@ function Invoke-RequestExecution {
     })
     $monitorTimer.Start()
 
-    # --- Import/Export Workspace ---
+#endregion
+#region GUI Initialization and Layout
     $importCurlMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Import cURL...", $null, {
         $curlForm = New-Object System.Windows.Forms.Form -Property @{
             Text = "Import cURL"
@@ -5112,21 +6081,16 @@ function Invoke-RequestExecution {
             $raw = $txtCurl.Text
             if ([string]::IsNullOrWhiteSpace($raw)) { return }
 
-            # Basic parsing logic for standard cURL commands
             $url = ""
             $method = "GET"
             $headers = @{}
             $body = ""
 
-            # Regex to find URL (http/https) inside quotes or whitespace
             if ($raw -match "['`"](https?://[^'`"]+)['`"]") { $url = $matches[1] }
             elseif ($raw -match "(https?://\S+)") { $url = $matches[1] }
 
-            # Method
             if ($raw -match "-X\s+([A-Z]+)") { $method = $matches[1] }
             
-            # Headers (-H "Key: Value")
-            # Regex matches -H, space, quote (group 1), content (group 2), matching quote (backreference 1)
             $hMatches = [regex]::Matches($raw, '-H\s+([''"])(.*?)\1')
             foreach ($m in $hMatches) {
                 $headerContent = $m.Groups[2].Value
@@ -5136,13 +6100,11 @@ function Invoke-RequestExecution {
                 }
             }
 
-            # Body (--data, -d, --data-raw)
             if ($raw -match "(?:--data|--data-raw|-d)\s+(['`"])(.*?)\1") {
                 $body = $matches[2]
                 if ($method -eq "GET") { $method = "POST" }
             }
 
-            # Apply to UI
             if ($url) { $script:textUrl.Text = $url }
             $script:comboMethod.SelectedItem = $method
             
@@ -5153,22 +6115,36 @@ function Invoke-RequestExecution {
             $script:textBody.Text = $body
             if ($body.Trim().StartsWith("{") -or $body.Trim().StartsWith("[")) { $script:comboBodyType.SelectedItem = "application/json" }
 
+#endregion
+#region Logging
             $curlForm.DialogResult = [System.Windows.Forms.DialogResult]::OK
+#endregion
+#region GUI Initialization and Layout
             $curlForm.Close()
         }
         $btnCancel = New-Button -Text "Cancel" -Property @{ Dock = "Right"; Width = 100 } -OnClick { $curlForm.Close() }
         
         $panelBtn.Controls.AddRange(@($btnCancel, $btnImport))
         $curlForm.Controls.AddRange(@($txtCurl, $labelCurl, $panelBtn))
+#endregion
+#region Logging
         $curlForm.ShowDialog($form)
     })    
     $importCurlMenuItem.Visible = $script:settings.EnableCurlImport
 
+#endregion
+#region GUI Initialization and Layout
     $importPostmanMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Import Postman Collection...", $null, {
+#endregion
+#region Logging
         $openFileDialog = New-Object System.Windows.Forms.OpenFileDialog -Property @{
             Filter = "Postman Collection (*.json)|*.json"
             Title  = "Import Postman Collection"
         }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($openFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
                 $jsonContent = Get-Content -Path $openFileDialog.FileName -Raw | ConvertFrom-Json
@@ -5177,10 +6153,20 @@ function Invoke-RequestExecution {
                     throw "Invalid Postman Collection format. Only v2.1 is supported."
                 }
 
+<#
+.SYNOPSIS
+    Convert function.
+.DESCRIPTION
+    Handles logic related to Convert.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
                 function Convert-PostmanItems {
-                    param($Items)
+                    param($items)
                     $converted = @()
-                    foreach ($item in $Items) {
+                    foreach ($item in $items) {
                         if ($item.item) {
                             $folder = [PSCustomObject]@{
                                 Name = $item.name
@@ -5245,6 +6231,8 @@ function Invoke-RequestExecution {
                 $script:collections += [PSCustomObject]@{ Name = $jsonContent.info.name; Type = "Collection"; Items = $importedItems; Variables = @{} }
                 Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
                 Save-Collections
+#endregion
+#region GUI Initialization and Layout
                 [System.Windows.Forms.MessageBox]::Show("Postman collection imported successfully.", "Import Complete", "OK", "Information")
             } catch {
                 [System.Windows.Forms.MessageBox]::Show("Failed to import Postman collection: $($_.Exception.Message)", "Import Error", "OK", "Error")
@@ -5254,30 +6242,62 @@ function Invoke-RequestExecution {
     $importPostmanMenuItem.Visible = $script:settings.EnablePostmanImport
 
     $importWorkspaceMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Import Workspace...", $null, {
+#endregion
+#region Logging
         $openFileDialog = New-Object System.Windows.Forms.OpenFileDialog -Property @{
             Filter = "API Tester Workspace (*.apw)|*.apw"
             Title  = "Import Workspace"
             InitialDirectory = $configDir
         }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($openFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
                 $workspace = Get-Content -Path $openFileDialog.FileName -Raw | ConvertFrom-Json
                 if ($workspace.PSObject.Properties.Name -contains 'Settings') {
-                    # Create an import options form
+#endregion
+#region GUI Initialization and Layout
                     $importOptionsForm = New-Object System.Windows.Forms.Form -Property @{
                         Text = "Import Options"
-                        Size = New-Object System.Drawing.Size(320, 260)
-                        StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
-                        FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
-                        MaximizeBox = $false; MinimizeBox = $false
+#endregion
+#region Logging
+                        FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::Sizable
+                        MaximizeBox = $true; MinimizeBox = $false
                     }
+
+                    if ($script:settings.ImportWorkspaceSize) {
+                        $sz = $script:settings.ImportWorkspaceSize
+                        $importOptionsForm.Size = New-Object System.Drawing.Size($sz.Width, $sz.Height)
+                    } else {
+                        $importOptionsForm.Size = New-Object System.Drawing.Size(320, 320)
+                    }
+
+                    if ($script:settings.ImportWorkspaceLocation) {
+                        $loc = $script:settings.ImportWorkspaceLocation
+                        $importOptionsForm.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+                        $importOptionsForm.Location = New-Object System.Drawing.Point($loc.X, $loc.Y)
+                    } else {
+                        $importOptionsForm.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+                    }
+
+                    $importOptionsForm.Add_FormClosing({
+                        if ($importOptionsForm.WindowState -eq 'Normal') {
+                            $script:settings.ImportWorkspaceSize = @{ Width = $importOptionsForm.Width; Height = $importOptionsForm.Height }
+                            $script:settings.ImportWorkspaceLocation = @{ X = $importOptionsForm.Location.X; Y = $importOptionsForm.Location.Y }
+                            Save-Settings
+                        }
+                    })
+
                     $labelInfo = New-Label -Text "Select components to import from workspace." -Location (New-Object System.Drawing.Point(15, 15)) -Size (New-Object System.Drawing.Size(280, 20))
+#endregion
+#region GUI Initialization and Layout
                     $checkImportEnvironments = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import Environments"; Location = (New-Object System.Drawing.Point(18, 45)); AutoSize = $true }
                     $checkImportHistory = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import History"; Location = (New-Object System.Drawing.Point(18, 75)); AutoSize = $true }
                     $checkImportGlobals = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import Globals"; Location = (New-Object System.Drawing.Point(18, 105)); AutoSize = $true }
                     $checkImportCollections = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import Collections"; Location = (New-Object System.Drawing.Point(18, 135)); AutoSize = $true }
 
-                    # Enable/disable checkboxes based on what's in the file
                     $checkImportEnvironments.Enabled = $workspace.PSObject.Properties.Name -contains 'Environments'
                     $checkImportHistory.Enabled = $workspace.PSObject.Properties.Name -contains 'History'
                     $checkImportGlobals.Enabled = $workspace.PSObject.Properties.Name -contains 'Globals'
@@ -5287,9 +6307,25 @@ function Invoke-RequestExecution {
                     $checkImportGlobals.Checked = $checkImportGlobals.Enabled
                     $checkImportCollections.Checked = $checkImportCollections.Enabled
 
-                    $btnContinueImport = New-Button -Text "Import" -Location (New-Object System.Drawing.Point(190, 180)) -Size (New-Object System.Drawing.Size(100, 30)) -OnClick {
-                        # Always import settings
+                    $checkSelectAll = New-Object System.Windows.Forms.CheckBox -Property @{
+                        Text = "Select All"
+                        Location = New-Object System.Drawing.Point(18, 165)
+                        AutoSize = $true
+                        Checked = $true
+                    }
+                    $checkSelectAll.Add_CheckedChanged({
+                        $state = $checkSelectAll.Checked
+                        if ($checkImportEnvironments.Enabled) { $checkImportEnvironments.Checked = $state }
+                        if ($checkImportHistory.Enabled) { $checkImportHistory.Checked = $state }
+                        if ($checkImportGlobals.Enabled) { $checkImportGlobals.Checked = $state }
+                        if ($checkImportCollections.Enabled) { $checkImportCollections.Checked = $state }
+                    })
+
+                    $buttonsPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Bottom'; Height = 50; Padding = [System.Windows.Forms.Padding]::new(0,10,10,10); FlowDirection = 'RightToLeft' }
+                    $btnContinueImport = New-Button -Text "Import" -Style 'Primary' -Size (New-Object System.Drawing.Size(100, 30)) -Property @{ Margin = [System.Windows.Forms.Padding]::new(10,0,0,0) } -OnClick {
                         $workspace.Settings | ConvertTo-Json -Depth 5 | Set-Content -Path $settingsFilePath
+#endregion
+#region Logging
                         Write-Log "Imported Settings from workspace." -Level Debug
 
                         if ($checkImportEnvironments.Checked) {
@@ -5309,7 +6345,6 @@ function Invoke-RequestExecution {
                             Write-Log "Imported Collections from workspace." -Level Debug
                         }
 
-                        # Reload everything into the current session
                         Write-Log "Workspace import complete. Reloading UI."
                         Load-Settings
                         Load-Globals
@@ -5322,33 +6357,68 @@ function Invoke-RequestExecution {
                         $script:activeCollectionVariables = @{}
                         Update-Layout
                         Populate-HistoryList
+#endregion
+#region GUI Initialization and Layout
                         [System.Windows.Forms.MessageBox]::Show("Workspace components successfully imported. The application will now reflect the changes.", "Import Successful", "OK", "Information")
                         $importOptionsForm.Close()
                     }
-                    $btnCancelImport = New-Button -Text "Cancel" -Location (New-Object System.Drawing.Point(80, 180)) -Size (New-Object System.Drawing.Size(100, 30)) -OnClick { $importOptionsForm.Close() }
-                    
-                    $importOptionsForm.Controls.AddRange(@($labelInfo, $checkImportEnvironments, $checkImportHistory, $checkImportGlobals, $checkImportCollections, $btnContinueImport, $btnCancelImport))
+                    $btnCancelImport = New-Button -Text "Cancel" -Style 'Danger' -Size (New-Object System.Drawing.Size(100, 30)) -OnClick { $importOptionsForm.Close() }
+                    $buttonsPanel.Controls.AddRange(@($btnContinueImport, $btnCancelImport))
+                    $importOptionsForm.Controls.AddRange(@($labelInfo, $checkImportEnvironments, $checkImportHistory, $checkImportGlobals, $checkImportCollections, $checkSelectAll, $buttonsPanel))
+#endregion
+#region Logging
                     $importOptionsForm.ShowDialog($form)
                 } else {
+#endregion
+#region GUI Initialization and Layout
                     [System.Windows.Forms.MessageBox]::Show("The selected file is not a valid workspace file.", "Import Error", "OK", "Error")
                 }
             } catch {
                 [System.Windows.Forms.MessageBox]::Show("Failed to import workspace: $($_.Exception.Message)", "Import Error", "OK", "Error")
+#endregion
+#region Logging
                 Write-Log "Error importing workspace file '$($openFileDialog.FileName)': $($_.Exception.Message)" -Level Info
             }
         }
     })
+#endregion
+#region GUI Initialization and Layout
     $exportWorkspaceMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Export Workspace...", $null, {
-        # Create a small form to ask about including history
         $exportOptionsForm = New-Object System.Windows.Forms.Form -Property @{
             Text = "Export Options"
-            Size = New-Object System.Drawing.Size(450, 340) # Increased height for better button spacing
-            StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
-            FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
-            MaximizeBox = $false
+#endregion
+#region Logging
+            FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::Sizable
+            MaximizeBox = $true
             MinimizeBox = $false
         }
+
+        if ($script:settings.ExportWorkspaceSize) {
+            $sz = $script:settings.ExportWorkspaceSize
+            $exportOptionsForm.Size = New-Object System.Drawing.Size($sz.Width, $sz.Height)
+        } else {
+            $exportOptionsForm.Size = New-Object System.Drawing.Size(450, 340)
+        }
+
+        if ($script:settings.ExportWorkspaceLocation) {
+            $loc = $script:settings.ExportWorkspaceLocation
+            $exportOptionsForm.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+            $exportOptionsForm.Location = New-Object System.Drawing.Point($loc.X, $loc.Y)
+        } else {
+            $exportOptionsForm.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+        }
+
+        $exportOptionsForm.Add_FormClosing({
+            if ($exportOptionsForm.WindowState -eq 'Normal') {
+                $script:settings.ExportWorkspaceSize = @{ Width = $exportOptionsForm.Width; Height = $exportOptionsForm.Height }
+                $script:settings.ExportWorkspaceLocation = @{ X = $exportOptionsForm.Location.X; Y = $exportOptionsForm.Location.Y }
+                Save-Settings
+            }
+        })
+
         $labelInfo = New-Label -Text "Select options for your workspace export." -Location (New-Object System.Drawing.Point(15, 15)) -Size (New-Object System.Drawing.Size(410, 25))
+#endregion
+#region GUI Initialization and Layout
         $checkIncludeEnvironments = New-Object System.Windows.Forms.CheckBox -Property @{
             Text = "Include environments in export"
             Location = New-Object System.Drawing.Point(18, 50)
@@ -5356,7 +6426,7 @@ function Invoke-RequestExecution {
         }
         $checkIncludeHistory = New-Object System.Windows.Forms.CheckBox -Property @{
             Text = "Include request history in export"
-            Location = New-Object System.Drawing.Point(18, 85) # Moved down
+            Location = New-Object System.Drawing.Point(18, 85) 
             AutoSize = $true
         }
         $checkIncludeGlobals = New-Object System.Windows.Forms.CheckBox -Property @{
@@ -5369,7 +6439,6 @@ function Invoke-RequestExecution {
             Location = New-Object System.Drawing.Point(18, 155)
             AutoSize = $true
         }
-        # Disable checkboxes if there is no data to export
         $checkIncludeEnvironments.Enabled = ($null -ne $script:environments -and $script:environments.Count -gt 0)
         $checkIncludeHistory.Enabled = ($null -ne $script:history -and $script:history.Count -gt 0)
         $checkIncludeGlobals.Enabled = ($null -ne $script:globals -and $script:globals.Count -gt 0)
@@ -5379,8 +6448,25 @@ function Invoke-RequestExecution {
         $checkIncludeGlobals.Checked = $checkIncludeGlobals.Enabled
         $checkIncludeCollections.Checked = $checkIncludeCollections.Enabled
 
-        $btnContinueExport = New-Button -Text "Export..." -Location (New-Object System.Drawing.Point(310, 300)) -Size (New-Object System.Drawing.Size(110, 40)) -OnClick {
-            $exportOptionsForm.Close() # Close the options form first
+        $checkSelectAll = New-Object System.Windows.Forms.CheckBox -Property @{
+            Text = "Select All"
+            Location = New-Object System.Drawing.Point(18, 190)
+            AutoSize = $true
+            Checked = $true
+        }
+        $checkSelectAll.Add_CheckedChanged({
+            $state = $checkSelectAll.Checked
+            if ($checkIncludeEnvironments.Enabled) { $checkIncludeEnvironments.Checked = $state }
+            if ($checkIncludeHistory.Enabled) { $checkIncludeHistory.Checked = $state }
+            if ($checkIncludeGlobals.Enabled) { $checkIncludeGlobals.Checked = $state }
+            if ($checkIncludeCollections.Enabled) { $checkIncludeCollections.Checked = $state }
+        })
+
+        $buttonsPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Bottom'; Height = 60; Padding = [System.Windows.Forms.Padding]::new(0,10,10,10); FlowDirection = 'RightToLeft' }
+        $btnContinueExport = New-Button -Text "Export..." -Style 'Primary' -Size (New-Object System.Drawing.Size(110, 40)) -Property @{ Margin = [System.Windows.Forms.Padding]::new(10,0,0,0) } -OnClick {
+            $exportOptionsForm.Close() 
+#endregion
+#region Logging
             $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog -Property @{
                 Filter = "API Tester Workspace (*.apw)|*.apw"
                 DefaultExt = "apw"
@@ -5388,9 +6474,12 @@ function Invoke-RequestExecution {
                 Title = "Export Workspace"
                 InitialDirectory = $configDir
             }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
             if ($saveFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 $workspace = [PSCustomObject]@{
-                    # Settings are always included in a workspace export.
                     Settings = $script:settings
                 }
                 if ($checkIncludeEnvironments.Checked) {
@@ -5407,31 +6496,42 @@ function Invoke-RequestExecution {
                 }
                 try {
                     $workspace | ConvertTo-Json -Depth 10 | Set-Content -Path $saveFileDialog.FileName -ErrorAction Stop
+#endregion
+#region GUI Initialization and Layout
                     [System.Windows.Forms.MessageBox]::Show("Workspace successfully exported.", "Export Complete", "OK", "Information")
                 } catch {
+#endregion
+#region Logging
                     Write-Log "Error exporting workspace: $($_.Exception.Message)" -Level Info
+#endregion
+#region GUI Initialization and Layout
                     [System.Windows.Forms.MessageBox]::Show("Failed to export workspace: $($_.Exception.Message)", "Export Error", "OK", "Error")
                 }
             }
         }
-        $btnCancelExport = New-Button -Text "Cancel" -Location (New-Object System.Drawing.Point(200, 300)) -Size (New-Object System.Drawing.Size(100, 40)) -OnClick {
+        $btnCancelExport = New-Button -Text "Cancel" -Style 'Danger' -Size (New-Object System.Drawing.Size(100, 40)) -OnClick {
             $exportOptionsForm.Close()
         }
-        $exportOptionsForm.Controls.AddRange(@($labelInfo, $checkIncludeEnvironments, $checkIncludeHistory, $checkIncludeGlobals, $checkIncludeCollections, $btnContinueExport, $btnCancelExport))
+        $buttonsPanel.Controls.AddRange(@($btnContinueExport, $btnCancelExport))
+        $exportOptionsForm.Controls.AddRange(@($labelInfo, $checkIncludeEnvironments, $checkIncludeHistory, $checkIncludeGlobals, $checkIncludeCollections, $checkSelectAll, $buttonsPanel))
+#endregion
+#region Logging
         $exportOptionsForm.ShowDialog($form)
     })
 
+#endregion
+#region GUI Initialization and Layout
     $settingsMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("&Settings...", $null, { 
-        # Directly call the function to show the settings window.
         $result = Show-SettingsWindow -parentForm $form
 
+#endregion
+#region Logging
         if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
             Write-Log "Settings saved and applied."
             Update-Layout
             $importCurlMenuItem.Visible = $script:settings.EnableCurlImport
             $importPostmanMenuItem.Visible = $script:settings.EnablePostmanImport
 
-            # Update Console Welcome Message if it is currently displayed (and no other history exists)
             if ($script:consoleOutput -and $script:consoleOutput.Text -match "(?s)^Welcome to API Tester Console.*?Example: python: print\('Hello'\)\s+$") {
                 $defaultLang = if ($script:settings.DefaultConsoleLanguage) { $script:settings.DefaultConsoleLanguage } else { "PowerShell" }
                 $script:consoleOutput.Text = "Welcome to API Tester Console.`nDefault language: $defaultLang.`nPrefix commands with 'python:', 'js:', 'php:', 'ruby:', 'go:', 'bat:', 'bash:' to switch languages.`nExample: python: print('Hello')`n`n"
@@ -5441,16 +6541,17 @@ function Invoke-RequestExecution {
         }
     })
     
+#endregion
+#region GUI Initialization and Layout
     $exitMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("E&xit", $null, { $form.Close() })
 
     $resetLayoutMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Reset Layout", $null, {
         $script:responseDockState = 'Right'
         $script:settings.ResponseDockState = 'Right'
         $script:isHistoryUndocked = $false
-        # Calculate optimal splitter distances based on form width
         $formWidth = $form.ClientSize.Width
-        $splitContainer.SplitterDistance = [int]($formWidth * 0.7)  # 70% for Body+Response, 30% for History
-        $mainContentSplitter.SplitterDistance = [int](($formWidth * 0.7) * 0.45)  # 45% of left panel for Body, 55% for Response
+        $splitContainer.SplitterDistance = [int]($formWidth * 0.7)  
+        $mainContentSplitter.SplitterDistance = [int](($formWidth * 0.7) * 0.45)  
         Save-Settings
         Update-Layout
         [System.Windows.Forms.MessageBox]::Show("Layout has been reset to defaults.", "Reset Layout", "OK", "Information")
@@ -5468,6 +6569,8 @@ function Invoke-RequestExecution {
 
     $globalVarsMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Global Variables...", $null, {
         $result = Show-VariablesEditor -parentForm $form -Title "Global Variables" -Variables $script:globals
+#endregion
+#region Logging
         if ($result.Result -eq [System.Windows.Forms.DialogResult]::OK) {
             $script:globals = if ($result.Variables) { $result.Variables } else { @{} }
             Save-Globals
@@ -5475,6 +6578,8 @@ function Invoke-RequestExecution {
         }
     })
     $toolsMenu.DropDownItems.Add($globalVarsMenuItem)
+#endregion
+#region GUI Initialization and Layout
     $toolsMenu.DropDownItems.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 
     $proxyMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Proxy Configuration...", $null, { Show-ProxySettings -parentForm $form })
@@ -5505,7 +6610,6 @@ function Invoke-RequestExecution {
 
     $form.MainMenuStrip = $menuStrip
 
-    # GroupBox for selecting the active environment.
     $groupEnvironment = New-Object System.Windows.Forms.GroupBox -Property @{
         Height   = 110
         Dock     = 'Top'
@@ -5513,7 +6617,6 @@ function Invoke-RequestExecution {
         Padding  = [System.Windows.Forms.Padding]::new(5)
         BackColor = $script:Theme.GroupBackground
     }
-    # Use TableLayoutPanel for perfect alignment and to prevent cutoff
     $panelEnvInner = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ 
         Dock = 'Fill'
         ColumnCount = 3
@@ -5556,33 +6659,39 @@ function Invoke-RequestExecution {
 
     $groupEnvironment.Controls.Add($panelEnvInner)
 
-    # Populates the environment dropdown, preserving the current selection if possible.
+<#
+.SYNOPSIS
+    Populate function.
+.DESCRIPTION
+    Handles logic related to Populate.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Populate-EnvironmentDropdown {
         $currentSelection = $script:comboEnvironment.SelectedItem
         $script:comboEnvironment.Items.Clear()
-        $script:comboEnvironment.Items.Add("No Environment") # Always include this option
+        $script:comboEnvironment.Items.Add("No Environment") 
         $script:environments.Keys | Sort-Object | ForEach-Object { $script:comboEnvironment.Items.Add($_) }
         if ($currentSelection -and $script:comboEnvironment.Items.Contains($currentSelection)) { $script:comboEnvironment.SelectedItem = $currentSelection } else { $script:comboEnvironment.SelectedItem = "No Environment" }
     }
 
-    # When an environment is selected, populate the main form's fields.
     $script:comboEnvironment.Add_SelectedIndexChanged({
         $selectedEnvName = $script:comboEnvironment.SelectedItem
         if ($selectedEnvName -ne "No Environment" -and $script:environments.ContainsKey($selectedEnvName)) {
             $script:settings.LastActiveEnvironment = $selectedEnvName
             Save-Settings
 
-            $envData = $script:environments[$selectedEnvName] # Retrieve the environment data
+            $envData = $script:environments[$selectedEnvName] 
 
-            # Populate URL and Headers
             $script:textUrl.Text = $envData.Url
             $script:textHeaders.Text = $envData.Headers
 
-            # Populate Authentication
             if ($envData.Authentication) {
                 $auth = $envData.Authentication
                 $script:authPanel.ComboAuthType.SelectedItem = $auth.Type
-                & $script:authPanel.SwitchPanel # Update the visible auth panel
+                & $script:authPanel.SwitchPanel 
                 switch ($auth.Type) {
                     "API Key"      { $script:authPanel.TextApiKeyName.Text = $auth.Key; $script:authPanel.TextApiKeyValue.Text = $auth.Value; $script:authPanel.ComboApiKeyAddTo.SelectedItem = $auth.AddTo }
                     "Bearer Token" { $script:authPanel.TextBearerToken.Text = $auth.Token }
@@ -5607,6 +6716,8 @@ function Invoke-RequestExecution {
                     }
                 }
             }
+#endregion
+#region Logging
             Write-Log "Applied environment '$selectedEnvName' to the current request." -Level Info
         }
         if ($script:comboExtractScope -and $script:comboExtractScope.SelectedItem -eq "Environment" -and $null -ne $updateExtractVarList) {
@@ -5620,33 +6731,30 @@ function Invoke-RequestExecution {
         $form.ResumeLayout()
     })
 
-    # Main layout container, splitting the request/response view from the history panel.
-    $splitContainer = New-Object System.Windows.Forms.SplitContainer -Property @{ # This is the main splitter for Request/Response vs History
+#endregion
+#region GUI Initialization and Layout
+    $splitContainer = New-Object System.Windows.Forms.SplitContainer -Property @{ 
         Name             = 'splitContainer'
         Dock             = [System.Windows.Forms.DockStyle]::Fill
         BorderStyle      = [System.Windows.Forms.BorderStyle]::FixedSingle
-        SplitterDistance = 590 # Initial width of the left panel (request/response)
+        SplitterDistance = 590 
     }
 
-    # This splitter is for handling Left/Right docking of the Response panel
     $mainContentSplitter = New-Object System.Windows.Forms.SplitContainer -Property @{
         Name        = 'mainContentSplitter'
         Dock        = [System.Windows.Forms.DockStyle]::Fill
         Orientation = [System.Windows.Forms.Orientation]::Vertical
-        BorderStyle = [System.Windows.Forms.BorderStyle]::None # No double border
+        BorderStyle = [System.Windows.Forms.BorderStyle]::None 
         SplitterDistance = 590
     }
-    # This panel will hold the Request and Output controls when the Response is side-docked
     $mainContentPanel = New-Object System.Windows.Forms.Panel -Property @{
         Name = 'mainContentPanel'
         Dock = [System.Windows.Forms.DockStyle]::Fill
         Padding = [System.Windows.Forms.Padding]::new(10)
     }
 
-    # Add the new splitter to the original split container's Panel1
     $splitContainer.Panel1.Controls.Add($mainContentSplitter)
     
-    # GroupBox for manual output file settings and the main Send/Cancel buttons.
     $groupOutput = New-Object System.Windows.Forms.GroupBox -Property @{
         Height   = 180
         Dock     = 'Top'
@@ -5655,7 +6763,6 @@ function Invoke-RequestExecution {
         BackColor = $script:Theme.GroupBackground
     }
 
-    # Refactored: Use Panels with Docking strategy consistent with Request/Environment panels
     $panelOutputFormat = New-Object System.Windows.Forms.Panel -Property @{
         Dock = 'Top'
         Height = 50
@@ -5701,8 +6808,14 @@ function Invoke-RequestExecution {
         Width = 100
         Margin = [System.Windows.Forms.Padding]::new(5, 0, 0, 0)
     } -OnClick {
+#endregion
+#region Logging
         $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
         $saveFileDialog.Filter = "All files (*.*)|*.*"
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($saveFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             $script:textOutputFile.Text = $saveFileDialog.FileName
         }
@@ -5712,6 +6825,8 @@ function Invoke-RequestExecution {
     $panelOutputFile.Controls.Add($script:textOutputFile, 1, 0)
     $panelOutputFile.Controls.Add($btnBrowseOutputFile, 2, 0)
 
+#endregion
+#region GUI Initialization and Layout
     $panelOutputActions = New-Object System.Windows.Forms.Panel -Property @{
         Dock = 'Bottom'
         Height = 60
@@ -5723,14 +6838,22 @@ function Invoke-RequestExecution {
     $panelOutputFile.BringToFront()
     $panelOutputFormat.BringToFront()
 
-    # Updates UI elements based on current settings, such as toggling control visibility.
+<#
+.SYNOPSIS
+    Update function.
+.DESCRIPTION
+    Handles logic related to Update.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Update-UI-Mode {
         $showOutputFileControls = -not $script:settings.AutoSaveToFile
         
         $labelOutputFile.Visible = $showOutputFileControls
         $script:textOutputFile.Visible = $showOutputFileControls
         $btnBrowseOutputFile.Visible = $showOutputFileControls
-        # OutputFormat controls are always visible, so no need to toggle here.
 
         if (-not $showOutputFileControls) { $script:textOutputFile.Text = "" }
 
@@ -5741,37 +6864,45 @@ function Invoke-RequestExecution {
             $script:comboMethod.SelectedItem = "POST"
         }
 
-        # Show/Hide Repeat button based on settings
         $btnRepeat.Visible = $script:settings.EnableRepeatRequest
     }
 
-    # Creates the separate, undockable window for the request history panel.
+<#
+.SYNOPSIS
+    New function.
+.DESCRIPTION
+    Handles logic related to New.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function New-HistoryWindow {
-        if ($script:historyForm -and -not $script:historyForm.IsDisposed) { return } # Don't create if it already exists and is not disposed
+        if ($script:historyForm -and -not $script:historyForm.IsDisposed) { return } 
 
-        $script:historyForm = New-Object System.Windows.Forms.Form -Property @{ # Initialize the form
+        $script:historyForm = New-Object System.Windows.Forms.Form -Property @{ 
             Text          = "History"
             Size          = New-Object System.Drawing.Size(300, 600)
-            StartPosition = [System.Windows.Forms.FormStartPosition]::WindowsDefaultLocation # Start with a default location
+            StartPosition = [System.Windows.Forms.FormStartPosition]::WindowsDefaultLocation 
             FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::Sizable
             ShowInTaskbar = $false
             Owner         = $form
         }
 
         $historyFormShownHandler = {
-            # Position the history window next to the main form, then remove this event handler.
             $script:historyForm.Location = New-Object System.Drawing.Point(([int]$form.Location.X + [int]$form.Width), [int]$form.Location.Y)
             $script:historyForm.Remove_Shown($historyFormShownHandler)
         }
         $script:historyForm.Add_Shown($historyFormShownHandler)
 
-        # Handle the 'X' button click: hide the window and re-dock the panel instead of closing.
         $script:historyForm.Add_FormClosing({
             param($sender, $e)
-            if (-not $script:isMainFormClosing) { # Only re-dock if main form is not closing
-                $e.Cancel = $true # Prevent the form from being disposed.
+            if (-not $script:isMainFormClosing) { 
+                $e.Cancel = $true 
                 $script:isHistoryUndocked = $false
-                Update-Layout # Re-dock the panel.
+                Update-Layout 
+#endregion
+#region Logging
                 Write-Log "Undocked history window closed, re-docking." -Level Debug
             } else {
                 Write-Log "Undocked history window closing due to main form closure." -Level Debug
@@ -5780,31 +6911,46 @@ function Invoke-RequestExecution {
         Write-Log "Created undocked history window."
     }
 
-    # Creates the separate, undockable window for the response panel.
+<#
+.SYNOPSIS
+    New function.
+.DESCRIPTION
+    Handles logic related to New.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function New-ResponseWindow {
-        if ($script:responseForm -and -not $script:responseForm.IsDisposed) { return } # Don't create if it already exists
+#endregion
+#region GUI Initialization and Layout
+        if ($script:responseForm -and -not $script:responseForm.IsDisposed) { return } 
+#endregion
+#region Logging
         Write-Log "Creating undocked response window." -Level Debug
 
 
+#endregion
+#region GUI Initialization and Layout
         $script:responseForm = New-Object System.Windows.Forms.Form -Property @{
             Text          = "Response"
             Size          = New-Object System.Drawing.Size(600, 700)
             StartPosition = [System.Windows.Forms.FormStartPosition]::WindowsDefaultLocation
             FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::Sizable
-            ShowInTaskbar = $true # Show in taskbar as it's a primary content window
+            ShowInTaskbar = $true 
             Owner         = $form
             MaximizeBox   = $true
             MinimizeBox   = $true
         }
 
-        # Handle the 'X' button click: hide the window and re-dock the panel.
         $script:responseForm.Add_FormClosing({
             param($sender, $e)
-            if (-not $script:isMainFormClosing) { # Only re-dock if main form is not closing
-                $e.Cancel = $true # Prevent the form from being disposed.
-                $script:responseDockState = 'Bottom' # Default back to bottom docking
-                # Use the last known dock state instead of defaulting to Bottom
+            if (-not $script:isMainFormClosing) { 
+                $e.Cancel = $true 
+                $script:responseDockState = 'Bottom' 
                 & $setDockState $script:lastDockState
+#endregion
+#region Logging
                 Write-Log "Undocked response window closed, re-docking." -Level Debug
             } else {
                 Write-Log "Undocked response window closing due to main form closure." -Level Debug
@@ -5814,16 +6960,22 @@ function Invoke-RequestExecution {
     }
 
 
-    # Recalculates and applies the positions and sizes of all major UI panels.
-    # This function is called on form resize and when settings change.
+<#
+.SYNOPSIS
+    Update function.
+.DESCRIPTION
+    Handles logic related to Update.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Update-Layout {
-        if (-not $tabRequestBody) { return } # Guard clause to prevent execution before UI tabs are initialized
-        # Suspend layout logic to prevent flickering during updates
+        if (-not $tabRequestBody) { return } 
         $form.SuspendLayout()
         $mainContentSplitter.SuspendLayout()
         Update-UI-Mode
 
-        # Update checkmarks on the docking context menu
         $dockBottomMenuItem.Checked = ($script:responseDockState -eq 'Bottom')
         $dockLeftMenuItem.Checked = ($script:responseDockState -eq 'Left')
         $dockRightMenuItem.Checked = ($script:responseDockState -eq 'Right')
@@ -5832,14 +6984,16 @@ function Invoke-RequestExecution {
         if ($script:isHistoryUndocked -and $script:settings.EnableHistory) {
             $splitContainer.Panel2Collapsed = $true
             
+#endregion
+#region GUI Initialization and Layout
             if (-not $script:historyForm -or $script:historyForm.IsDisposed) {
-                New-HistoryWindow # This will create/recreate $script:historyForm
+                New-HistoryWindow 
             }
             if (-not $script:historyForm.Controls.Contains($groupHistory)) {
                 $groupHistory.Parent = $script:historyForm
             }
             if (-not $script:historyForm.Visible) {
-                $script:historyForm.Show($form) # Show() will make it visible.
+                $script:historyForm.Show($form) 
             }
         } else {
             if ($script:historyForm -and -not $script:historyForm.IsDisposed -and $script:historyForm.Visible) { $script:historyForm.Hide() }
@@ -5849,15 +7003,14 @@ function Invoke-RequestExecution {
             $splitContainer.Panel2Collapsed = (-not $script:settings.ShowHistory) -or (-not $script:settings.EnableHistory)
         }
 
-        # 1. Detach groupResponse and mainContentPanel from any parent, and clear splitter panels.
-        $groupResponse.Parent = $null # Detach groupResponse from any parent
-        $mainContentPanel.Parent = $null # Detach mainContentPanel from any parent
+        $groupResponse.Parent = $null 
+        $mainContentPanel.Parent = $null 
         $mainContentSplitter.Panel1.Controls.Clear()
         $mainContentSplitter.Panel2.Controls.Clear()
         if ($script:responseForm -and -not $script:responseForm.IsDisposed) { $script:responseForm.Controls.Clear() }
 
         if ($script:responseDockState -eq 'Undocked') {
-            $groupResponse.Dock = 'Fill' # Make it fill the new window
+            $groupResponse.Dock = 'Fill' 
             if (-not $script:responseForm -or $script:responseForm.IsDisposed) {
                 New-ResponseWindow
             }
@@ -5866,7 +7019,7 @@ function Invoke-RequestExecution {
             }
             if (-not $script:responseForm.Visible) { $script:responseForm.Show() }
             $mainContentSplitter.Panel2Collapsed = $true
-            $mainContentSplitter.Panel1.Controls.Add($mainContentPanel) # mainContentPanel gets request/output
+            $mainContentSplitter.Panel1.Controls.Add($mainContentPanel) 
             $tabControlResponse.Alignment = [System.Windows.Forms.TabAlignment]::Top
             $mainContentPanel.Controls.AddRange(@($groupEnvironment, $groupRequest, $groupOutput))
             $groupResponse.Visible = $true
@@ -5875,36 +7028,34 @@ function Invoke-RequestExecution {
 
             $mainContentSplitter.Panel2Collapsed = $false
             $groupResponse.Dock = 'Fill'
-            $mainContentSplitter.Orientation = [System.Windows.Forms.Orientation]::Vertical # Use Vertical for a side-by-side split
+            $mainContentSplitter.Orientation = [System.Windows.Forms.Orientation]::Vertical 
 
             if ($script:responseDockState -eq 'Left') {
-                $groupResponse.Parent = $mainContentSplitter.Panel1 # Reparent to splitter panel 1
-                $mainContentPanel.Parent = $mainContentSplitter.Panel2 # Reparent mainContentPanel to splitter panel 2
+                $groupResponse.Parent = $mainContentSplitter.Panel1 
+                $mainContentPanel.Parent = $mainContentSplitter.Panel2 
                 $tabControlResponse.Alignment = [System.Windows.Forms.TabAlignment]::Left
-                $mainContentSplitter.SplitterDistance = [int]($mainContentSplitter.ClientSize.Width * 0.4) # 40% for response
-            } else { # Right
-                $mainContentPanel.Parent = $mainContentSplitter.Panel1 # Reparent mainContentPanel to splitter panel 1
-                $groupResponse.Parent = $mainContentSplitter.Panel2 # Reparent to splitter panel 2
+                $mainContentSplitter.SplitterDistance = [int]($mainContentSplitter.ClientSize.Width * 0.4) 
+            } else { 
+                $mainContentPanel.Parent = $mainContentSplitter.Panel1 
+                $groupResponse.Parent = $mainContentSplitter.Panel2 
                 $tabControlResponse.Alignment = [System.Windows.Forms.TabAlignment]::Right
-                $mainContentSplitter.SplitterDistance = [int]($mainContentSplitter.ClientSize.Width * 0.6) # 60% for request/output
+                $mainContentSplitter.SplitterDistance = [int]($mainContentSplitter.ClientSize.Width * 0.6) 
             }
             $mainContentPanel.Controls.AddRange(@($groupEnvironment, $groupRequest, $groupOutput))
             $groupResponse.Visible = $true
         } else {
-            # Default 'Bottom' docking
             $groupResponse.Dock = 'Fill'
             if ($script:responseForm -and -not $script:responseForm.IsDisposed -and $script:responseForm.Visible) { $script:responseForm.Hide() }
             $mainContentSplitter.Orientation = [System.Windows.Forms.Orientation]::Vertical
-            $mainContentSplitter.Panel1.Controls.Add($mainContentPanel) # mainContentPanel gets request/output
+            $mainContentSplitter.Panel1.Controls.Add($mainContentPanel) 
             $mainContentSplitter.Panel2Collapsed = $true
             $tabControlResponse.Alignment = [System.Windows.Forms.TabAlignment]::Top
             
-            $groupResponse.Parent = $mainContentPanel # Reparent to mainContentPanel
+            $groupResponse.Parent = $mainContentPanel 
             $mainContentPanel.Controls.AddRange(@($groupEnvironment, $groupRequest, $groupOutput, $groupResponse))
             $groupResponse.Visible = $true
-        } # End of Response Panel Docking State
+        } 
 
-        # Re-populate the request tabs based on visibility settings.
         $selectedRequestTab = $requestTabControl.SelectedTab
         $requestTabControl.TabPages.Clear()
         $requestTabControl.TabPages.Add($tabRequestBody)
@@ -5916,12 +7067,8 @@ function Invoke-RequestExecution {
             $requestTabControl.SelectedTab = $selectedRequestTab
         }
 
-        # Re-populate the response tabs based on visibility settings. This must be done
-        # AFTER the parent control is set and visibility is determined.
         $selectedResponseTab = $tabControlResponse.SelectedTab
         $tabControlResponse.TabPages.Clear()
-        # Only add tabs if the response group is visible in its current context
-        # This ensures that if groupResponse.Visible is false, no tabs are added.
         if ($groupResponse.Visible) {
             if ($script:settings.ShowResponse) { $tabControlResponse.TabPages.Add($tabResponse) }
             if ($script:settings.ShowJsonTreeTab) { $tabControlResponse.TabPages.Add($tabJsonTree) }
@@ -5930,23 +7077,19 @@ function Invoke-RequestExecution {
             if ($script:settings.ShowCurl) { $tabControlResponse.TabPages.Add($tabCode) }
             if ($script:settings.ShowConsoleTab) { $tabControlResponse.TabPages.Add($tabConsole) }
         }
-        # Restore the selected tab if it still exists
         if ($selectedResponseTab -and $tabControlResponse.TabPages.Contains($selectedResponseTab)) {
             $tabControlResponse.SelectedTab = $selectedResponseTab
         }
 
-        # Determine if the entire response group box should be visible. This applies to its content.
         $isAnyResponseTabVisible = ($script:settings.ShowResponse -or 
                                     $script:settings.ShowResponseHeaders -or 
                                     $script:settings.ShowTestResultsTab -or 
                                     $script:settings.ShowCurl -or
                                     $script:settings.ShowConsoleTab)
-        # If no tabs are visible, hide the groupResponse itself.
         if (-not $isAnyResponseTabVisible) { $groupResponse.Visible = $false }
 
         $groupEnvironment.Visible = $script:settings.ShowEnvironmentPanel
 
-        # Apply Stacking Strategy
         $groupEnvironment.Dock = 'Top'
         $groupEnvironment.Height = 110
 
@@ -5962,7 +7105,6 @@ function Invoke-RequestExecution {
             $groupRequest.Dock = 'Fill'
         }
 
-        # Ensure correct visual order (Env -> Request -> Output -> Response)
         $groupEnvironment.BringToFront()
         
         if ($groupRequest.Dock -eq 'Top') {
@@ -5974,7 +7116,6 @@ function Invoke-RequestExecution {
             $groupRequest.BringToFront()
         }
         
-        # Update fonts
         if ($script:settings.ResponseFontSize -le 0) { $script:settings.ResponseFontSize = 9 }
         $responseFont = New-Object System.Drawing.Font("Courier New", $script:settings.ResponseFontSize)
         if ($richTextResponse) { $richTextResponse.Font = $responseFont }
@@ -5987,7 +7128,6 @@ function Invoke-RequestExecution {
         $form.ResumeLayout()
     }
 
-    # --- GroupBox for Request Details ---
     $groupRequest = New-Object System.Windows.Forms.GroupBox -Property @{
         Height   = 500
         Dock     = 'Top'
@@ -5996,7 +7136,6 @@ function Invoke-RequestExecution {
         BackColor = $script:Theme.GroupBackground
     }
 
-    # Use TableLayoutPanel for perfect alignment
     $panelRequestTop = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
         Dock = 'Top'
         Height = 60
@@ -6044,8 +7183,6 @@ function Invoke-RequestExecution {
     $panelRequestTop.Controls.Add($labelUrl, 2, 0)
     $panelRequestTop.Controls.Add($script:textUrl, 3, 0)
 
-    # --- NEW: TabControl for Body, Headers, Auth ---
-    # --- TabControl for Body, Headers, Auth ---
     $requestTabControl = New-Object System.Windows.Forms.TabControl -Property @{
         Dock = 'Fill'
         Margin = [System.Windows.Forms.Padding]::new(0, 10, 0, 0)
@@ -6055,7 +7192,6 @@ function Invoke-RequestExecution {
 
     $bodyTopPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Top'; AutoSize = $true}
 
-    # Body Type Selection
     $labelBodyType = New-Label -Text "Body Type:" -Property @{ AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 0) }
     $script:comboBodyType = New-Object System.Windows.Forms.ComboBox -Property @{
         Name          = 'comboBodyType'
@@ -6063,7 +7199,7 @@ function Invoke-RequestExecution {
         DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     }
     $script:comboBodyType.Items.AddRange(@("multipart/form-data", "application/json", "application/xml", "text/plain", "application/x-www-form-urlencoded", "GraphQL"))
-    $script:comboBodyType.SelectedIndex = 0 # Default to form-data
+    $script:comboBodyType.SelectedIndex = 0 
 
     $checkIncludeFilename = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Include 'filename'"; AutoSize = $true; Checked = $script:settings.IncludeFilename; Margin = [System.Windows.Forms.Padding]::new(10, 3, 0, 0) }
     $toolTip.SetToolTip($checkIncludeFilename, "If checked, includes the 'filename' attribute in the multipart request part, which is standard for file uploads.")
@@ -6086,15 +7222,23 @@ function Invoke-RequestExecution {
         BorderStyle = 'None'
     }
 
-    # Helper function to re-evaluate and update all file lines in the body text
+<#
+.SYNOPSIS
+    Apply function.
+.DESCRIPTION
+    Handles logic related to Apply.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Apply-Attributes-To-AllFileLines {
         $lines = $script:textBody.Text.Split([string[]]@("`r`n", "`n"), [StringSplitOptions]::None)
         $updatedLines = foreach ($line in $lines) {
             $trimmedLine = $line.Trim()
-            # Regex to capture key, file path (quoted or not), and then optional attributes
             if ($trimmedLine -match '^\s*([^=]+?)\s*=\s*@("([^"]+)"|([^;`\r`n]+))((?:;[^=]+=[^;]+)*)\s*$') {
                 $key = $matches[1].Trim()
-                $filePath = if ($matches[3]) { $matches[3] } else { $matches[4] } # Correctly get path if quoted (group 3) or not (group 4)
+                $filePath = if ($matches[3]) { $matches[3] } else { $matches[4] } 
                 $fileString = "@`"$filePath`""
 
                 if ($checkIncludeFilename.Checked) {
@@ -6106,25 +7250,27 @@ function Invoke-RequestExecution {
                     $fileString += ";type=$mimeType"
                 }
                 "$key=$fileString"
-            } else { $line } # Return non-file lines unchanged
-        } # End of foreach ($line in $lines)
+            } else { $line } 
+        } 
         $script:textBody.Text = $updatedLines -join [System.Environment]::NewLine
     }
-    # Add KeyDown event to Body textbox to handle file selection with Alt+@
     $script:textBody.Add_KeyDown({
         param($sender, $e)
         if ($e.Alt -and $e.KeyCode -eq [System.Windows.Forms.Keys]::D2 -and $script:comboBodyType.SelectedItem -eq "multipart/form-data") {
-            # Alt+Shift+2 produces @ character
             $e.SuppressKeyPress = $true
+#endregion
+#region Logging
             $openFileDialog = New-Object System.Windows.Forms.OpenFileDialog
             $openFileDialog.Filter = "All files (*.*)|*.*"
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
             if ($openFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-                # Find the start of the current line to get the key
                 $lineStart = $sender.Text.LastIndexOf("`n", [Math]::Max(0, $sender.SelectionStart - 1)) + 1
                 $currentLine = $sender.Text.Substring($lineStart, $sender.SelectionStart - $lineStart)
                 $key = ($currentLine -split '=')[0].Trim()
 
-                # Format the file path string, including optional attributes
                 $fullPath = $openFileDialog.FileName
                 $fileString = "@`"$fullPath`""
 
@@ -6145,7 +7291,8 @@ function Invoke-RequestExecution {
         }
     })
 
-    # --- GraphQL Controls ---
+#endregion
+#region GUI Initialization and Layout
     $script:panelGraphQL = New-Object System.Windows.Forms.Panel -Property @{ Dock='Fill'; Visible=$false }
     $splitGraphQL = New-Object System.Windows.Forms.SplitContainer -Property @{ Dock='Fill'; Orientation='Vertical'; SplitterDistance=260 }
     
@@ -6174,7 +7321,7 @@ function Invoke-RequestExecution {
     $tabRequestHeaders.Controls.AddRange(@($script:textHeaders, $labelHeaders))
 
     $tabPreRequest = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Pre-request"; Padding = [System.Windows.Forms.Padding]::new(5) }
-    $labelPreRequest = New-Label -Text "PowerShell script to run before request. Access environment via `$Environment." -Property @{ Dock = 'Top'; Height = 25; TextAlign = 'MiddleLeft' }
+    $labelPreRequest = New-Label -Text "PowerShell script to run before request. Access environment via `$environment." -Property @{ Dock = 'Top'; Height = 25; TextAlign = 'MiddleLeft' }
     $script:textPreRequest = New-TextBox -Multiline $true -Property @{
         Name       = 'textPreRequest'
         Dock       = 'Fill'
@@ -6185,7 +7332,6 @@ function Invoke-RequestExecution {
 
     $tabRequestTests = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Tests"; Padding = [System.Windows.Forms.Padding]::new(5) }
 
-    # --- Tests Snippets Library (Sidebar) ---
     $script:testSnippets = @(
         [PSCustomObject]@{ Name = "Check Status 200"; Code = "Assert-StatusIs -StatusCode `$statusCode -ExpectedStatus 200" }
         [PSCustomObject]@{ Name = "Check Status 201"; Code = "Assert-StatusIs -StatusCode `$statusCode -ExpectedStatus 201" }
@@ -6245,7 +7391,6 @@ function Invoke-RequestExecution {
     $snippetsGroup.Controls.Add($snippetsLayout)
     $testsSplit.Panel1.Controls.Add($snippetsGroup)
 
-    # --- Tests Editor (Right Panel) ---
     $testsEditorLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
         Dock = 'Fill'
         ColumnCount = 1
@@ -6269,19 +7414,16 @@ function Invoke-RequestExecution {
 
     $tabRequestTests.Controls.Add($testsSplit)
 
-    # Create the main authentication panel for the request and get the tab page from it
-    $script:authPanel = New-AuthPanel #FIX: Corrected function call
+    $script:authPanel = New-AuthPanel 
     $tabAuth = $script:authPanel.Tab
 
-    # The main "Send Request" button. Its click handler orchestrates the entire API call process.
-    $btnSubmit = New-Button -Text "Send Request" -Style 'Primary' -OnClick { #FIX: Corrected button creation
+    $btnSubmit = New-Button -Text "Send Request" -Style 'Primary' -OnClick { 
         $btnSubmit.Enabled = $false
         $btnCancel.Enabled = $true
         $btnRepeat.Enabled = $false
         Invoke-RequestExecution
     } -Property @{ Size = New-Object System.Drawing.Size(165, 40); Margin = [System.Windows.Forms.Padding]::new(0,0,10,0) }
 
-    # Button to repeat the request after receiving response
     $btnRepeat = New-Button -Text "Repeat" -OnClick {
         if ($script:settings.EnableRepeatRequest -eq $false) {
             [System.Windows.Forms.MessageBox]::Show("Repeat Request is not enabled. Enable it in Settings > Configuration > Enable Repeat Request.", "Feature Disabled", "OK", "Information")
@@ -6306,23 +7448,28 @@ function Invoke-RequestExecution {
         $script:repeatFailCount = 0
         $script:isRepeating = $true
         
+#endregion
+#region Logging
         Write-Log "Starting repeat request: $repeatCount iterations" -Level Debug
         
-        # Manually trigger the request execution instead of clicking the button
-        # This avoids UI race conditions where the button might be disabled.
         $btnSubmit.Enabled = $false
         $btnCancel.Enabled = $true
         $btnRepeat.Enabled = $false
         Invoke-RequestExecution
+#endregion
+#region GUI Initialization and Layout
     } -Property @{ Size = New-Object System.Drawing.Size(165, 40); Margin = [System.Windows.Forms.Padding]::new(0,0,10,0) }
 
-    # Button to stop the currently running background job.
     $btnCancel = New-Button -Text "Cancel" -OnClick {
         if ($script:currentPowerShell) {
+#endregion
+#region Logging
             Write-Log "Cancel button clicked. Stopping pipeline."
             try { $script:currentPowerShell.Stop() } catch {}
         }
         $script:isRepeating = $false
+#endregion
+#region GUI Initialization and Layout
     } -Property @{ Size = New-Object System.Drawing.Size(165, 40); Enabled = $false; Margin = [System.Windows.Forms.Padding]::new(0,0,10,0) }
 
     $panelOutputButtons = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{
@@ -6339,29 +7486,23 @@ function Invoke-RequestExecution {
         btnRepeat = $btnRepeat
     }
 
-    # GroupBox that contains all the response-related tabs.
-    $groupResponse = New-Object System.Windows.Forms.GroupBox -Property @{ #FIX: Corrected GroupBox creation
+    $groupResponse = New-Object System.Windows.Forms.GroupBox -Property @{ 
         Anchor    = "Top, Bottom, Left, Right"
         Text      = "Response"
         Padding   = [System.Windows.Forms.Padding]::new(5)
         BackColor = $script:Theme.GroupBackground
     }
 
-    # Context menu for the response panel to allow undocking
     $responsePanelContextMenu = New-Object System.Windows.Forms.ContextMenuStrip    
     $dockingMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Docking Options")
 
-    # Helper function to set and save the dock state
     $setDockState = {
         param([string]$newState)
-        # If the new state is different, or if we are toggling off the 'Undocked' state
         if ($script:responseDockState -ne $newState -or ($script:responseDockState -eq 'Undocked' -and $newState -eq 'Undocked')) {
-            # If currently docked, save the state before undocking
             if ($script:responseDockState -ne 'Undocked') {
                 $script:lastDockState = $script:responseDockState
             }
  
-            # If we are clicking 'Undocked' while already undocked, re-dock to the last state
             if ($script:responseDockState -eq 'Undocked' -and $newState -eq 'Undocked') {
                 $newState = $script:lastDockState
             }
@@ -6381,21 +7522,29 @@ function Invoke-RequestExecution {
     $responsePanelContextMenu.Items.Add($dockingMenuItem)
     $groupResponse.ContextMenuStrip = $responsePanelContextMenu
 
-    # Generates a code snippet string based on a request object.
+<#
+.SYNOPSIS
+    Generate function.
+.DESCRIPTION
+    Handles logic related to Generate.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Generate-CodeSnippet {
         param(
-            [PSCustomObject]$RequestItem,
-            [string]$Language = "cURL"
+            [PSCustomObject]$requestItem,
+            [string]$language = "cURL"
         )
-        if (-not $RequestItem) { return "" }
+        if (-not $requestItem) { return "" }
 
-        $method = $RequestItem.Method
-        $url = $RequestItem.Url
-        $headersRaw = $RequestItem.Headers
-        $bodyRaw = $RequestItem.Body
-        $bodyType = $RequestItem.BodyType
+        $method = $requestItem.Method
+        $url = $requestItem.Url
+        $headersRaw = $requestItem.Headers
+        $bodyRaw = $requestItem.Body
+        $bodyType = $requestItem.BodyType
 
-        # Parse headers
         $headers = @{}
         foreach ($line in $headersRaw -split "`n") {
             if ($line -match "^\s*(.+?):\s*(.+)$") {
@@ -6405,7 +7554,7 @@ function Invoke-RequestExecution {
 
         $sb = New-Object System.Text.StringBuilder
 
-        switch ($Language) {
+        switch ($language) {
             "cURL" {
                 $curlParts = @("curl -X '$method' \")
                 foreach ($key in $headers.Keys) {
@@ -6457,6 +7606,8 @@ function Invoke-RequestExecution {
                          $params += " -ContentType '$bodyType'"
                     }
                 }
+#endregion
+#region API Execution
                 $sb.AppendLine("Invoke-RestMethod $params") | Out-Null
                 return $sb.ToString()
             }
@@ -6551,11 +7702,15 @@ function Invoke-RequestExecution {
                 $sb.AppendLine("") | Out-Null
                 $sb.AppendLine("fetch('$url', requestOptions)") | Out-Null
                 $sb.AppendLine("  .then(response => response.text())") | Out-Null
+#endregion
+#region Logging
                 $sb.AppendLine("  .then(result => console.log(result))") | Out-Null
                 $sb.AppendLine("  .catch(error => console.error('error', error));") | Out-Null
                 return $sb.ToString()
             }
             "C#" {
+#endregion
+#region API Execution
                 $sb.AppendLine("var client = new HttpClient();") | Out-Null
                 $sb.AppendLine("var request = new HttpRequestMessage(new HttpMethod(`"$method`"), `"$url`");") | Out-Null
                 foreach ($key in $headers.Keys) {
@@ -6590,42 +7745,63 @@ function Invoke-RequestExecution {
         return ""
     }
 
-    # Helper to populate JSON TreeView
+<#
+.SYNOPSIS
+    Populate function.
+.DESCRIPTION
+    Handles logic related to Populate.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Populate-JsonTree {
-        param($JsonData, $NodesCollection)
-        $NodesCollection.Clear()
-        $NodesCollection.Owner.BeginUpdate()
+        param($jsonData, $nodesCollection)
+        $nodesCollection.Clear()
+        $nodesCollection.Owner.BeginUpdate()
         
+<#
+.SYNOPSIS
+    Add function.
+.DESCRIPTION
+    Handles logic related to Add.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
         function Add-Node {
-            param($ParentNodes, $Obj, $Name)
-            $nodeText = if ($Name) { "$Name" } else { "Item" }
-            $tag = [PSCustomObject]@{ Key = $Name; Value = $Obj }
+            param($parentNodes, $obj, $name)
+            $nodeText = if ($name) { "$name" } else { "Item" }
+            $tag = [PSCustomObject]@{ Key = $name; Value = $obj }
             
-            if ($Obj -eq $null) {
+            if ($obj -eq $null) {
+#endregion
+#region GUI Initialization and Layout
                 $newNode = New-Object System.Windows.Forms.TreeNode("${nodeText}: null")
                 $newNode.Tag = $tag
-                $ParentNodes.Add($newNode) | Out-Null
-            } elseif ($Obj -is [PSCustomObject] -or $Obj -is [hashtable]) {
+                $parentNodes.Add($newNode) | Out-Null
+            } elseif ($obj -is [PSCustomObject] -or $obj -is [hashtable]) {
                 $newNode = New-Object System.Windows.Forms.TreeNode($nodeText)
                 $newNode.Tag = $tag
-                $ParentNodes.Add($newNode) | Out-Null
-                $props = if ($Obj -is [hashtable]) { $Obj.Keys } else { $Obj.PSObject.Properties.Name }
-                foreach ($prop in $props) { Add-Node -ParentNodes $newNode.Nodes -Obj $Obj.$prop -Name $prop }
-            } elseif ($Obj -is [array] -or $Obj -is [System.Collections.ICollection]) {
-                $newNode = New-Object System.Windows.Forms.TreeNode("$nodeText [$($Obj.Count)]")
+                $parentNodes.Add($newNode) | Out-Null
+                $props = if ($obj -is [hashtable]) { $obj.Keys } else { $obj.PSObject.Properties.Name }
+                foreach ($prop in $props) { Add-Node -ParentNodes $newNode.Nodes -Obj $obj.$prop -Name $prop }
+            } elseif ($obj -is [array] -or $obj -is [System.Collections.ICollection]) {
+                $newNode = New-Object System.Windows.Forms.TreeNode("$nodeText [$($obj.Count)]")
                 $newNode.Tag = $tag
-                $ParentNodes.Add($newNode) | Out-Null
-                for ($i=0; $i -lt $Obj.Count; $i++) { Add-Node -ParentNodes $newNode.Nodes -Obj $Obj[$i] -Name "[$i]" }
+                $parentNodes.Add($newNode) | Out-Null
+                for ($i=0; $i -lt $obj.Count; $i++) { Add-Node -ParentNodes $newNode.Nodes -Obj $obj[$i] -Name "[$i]" }
             } else {
-                $newNode = New-Object System.Windows.Forms.TreeNode("${nodeText}: $Obj")
+                $newNode = New-Object System.Windows.Forms.TreeNode("${nodeText}: $obj")
                 $newNode.Tag = $tag
-                $ParentNodes.Add($newNode) | Out-Null
+                $parentNodes.Add($newNode) | Out-Null
             }
         }
 
-        try { Add-Node -ParentNodes $NodesCollection -Obj $JsonData -Name "Root" } catch {}
-        if ($NodesCollection.Count -gt 0) { $NodesCollection[0].Expand() }
-        $NodesCollection.Owner.EndUpdate()
+        try { Add-Node -ParentNodes $nodesCollection -Obj $jsonData -Name "Root" } catch {}
+        if ($nodesCollection.Count -gt 0) { $nodesCollection[0].Expand() }
+        $nodesCollection.Owner.EndUpdate()
     }
 
     $tabControlResponse = New-Object System.Windows.Forms.TabControl -Property @{
@@ -6634,11 +7810,10 @@ function Invoke-RequestExecution {
 
     $tabResponse = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Response"; BorderStyle = 'None' }
     
-    # Refactored: Use a FlowLayoutPanel to match Body layout
     $responseToolsPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ 
         Dock = 'Top'
         Padding = [System.Windows.Forms.Padding]::new(2, 2, 2, 2)
-        AutoSize = $true #FIX: Corrected property name
+        AutoSize = $true 
         AutoSizeMode = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink
         WrapContents = $false
     }
@@ -6647,14 +7822,13 @@ function Invoke-RequestExecution {
         Width = 100
         Height = 35
         Enabled = $false
-        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) #FIX: Corrected margin
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) 
     } -OnClick {
         try {
             if ($script:lastResponseContentType -like 'application/json*') {
                 $jsonObj = $richTextResponse.Text | ConvertFrom-Json -ErrorAction Stop
                 $richTextResponse.Rtf = Format-JsonAsRtf -JsonString ($jsonObj | ConvertTo-Json -Depth 10 -ErrorAction Stop) -FontSize $script:settings.ResponseFontSize
             } elseif ($script:lastResponseContentType -like 'application/xml*' -or $script:lastResponseContentType -like 'text/xml*') {
-                # Use XmlWriter to properly indent the XML
                 $xmlDoc = New-Object System.Xml.XmlDocument
                 $xmlDoc.LoadXml($richTextResponse.Text)
                 $stringWriter = New-Object System.IO.StringWriter
@@ -6665,15 +7839,15 @@ function Invoke-RequestExecution {
                 $xmlWriter.Close()
                 $richTextResponse.Text = $stringWriter.ToString()
             } elseif ($script:lastResponseContentType -like 'text/html*') {
-                # Use the MSHTML COM object to tidy up the HTML
                 $html = New-Object -ComObject "HTMLFile"
                 $html.IHTMLDocument2_write($richTextResponse.Text)
-                $html.Close() # Close the document stream
+                $html.Close() 
                 $prettyHtml = $html.documentElement.outerHTML
                 $richTextResponse.Text = $prettyHtml
-                # Also update the preview tab with the tidied HTML
                 $webBrowserPreview.DocumentText = $prettyHtml
             }
+#endregion
+#region Logging
         } catch { Write-Log "Could not prettify response content: $($_.Exception.Message)" -Level Info }
     }
 
@@ -6681,14 +7855,17 @@ function Invoke-RequestExecution {
         Width = 100
         Height = 35
         Enabled = $false
-        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) #FIX: Corrected margin
+#endregion
+#region GUI Initialization and Layout
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) 
     } -OnClick {
         if ([string]::IsNullOrWhiteSpace($richTextResponse.Text)) { return }
 
+#endregion
+#region Logging
         $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
         $saveFileDialog.Title = "Export Response Body"
 
-        # Suggest a file extension based on the content type
         $extension = "txt"
         $filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*"
         if ($script:lastResponseContentType -like 'application/json*') {
@@ -6702,12 +7879,20 @@ function Invoke-RequestExecution {
         $saveFileDialog.Filter = $filter
         $saveFileDialog.FileName = "response.$extension"
 
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($saveFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
                 $richTextResponse.Text | Set-Content -Path $saveFileDialog.FileName -Encoding UTF8 -ErrorAction Stop
                 Write-Log "Response body exported to $($saveFileDialog.FileName)" -Level Info
             } catch {
+#endregion
+#region GUI Initialization and Layout
                 [System.Windows.Forms.MessageBox]::Show("Failed to export response body: $($_.Exception.Message)", "Export Error", "OK", "Error")
+#endregion
+#region Logging
                 Write-Log "Failed to export response body: $($_.Exception.Message)" -Level Info
             }
         }
@@ -6716,7 +7901,9 @@ function Invoke-RequestExecution {
     $script:btnGoToLine = New-Button -Text "Go To" -Property @{ 
         Width = 100
         Height = 35
-        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) #FIX: Corrected margin
+#endregion
+#region GUI Initialization and Layout
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) 
     } -OnClick {
         $lineStr = [Microsoft.VisualBasic.Interaction]::InputBox("Enter Line Number:", "Go To Line", "1")
         if ([int]::TryParse($lineStr, [ref]$null)) {
@@ -6732,7 +7919,7 @@ function Invoke-RequestExecution {
     $script:btnToggleWordWrap = New-Button -Text "Wrap" -Property @{ 
         Width = 100
         Height = 35
-        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) #FIX: Corrected margin
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) 
     } -OnClick {
         $richTextResponse.WordWrap = -not $richTextResponse.WordWrap
     }
@@ -6760,11 +7947,8 @@ function Invoke-RequestExecution {
     $toolTip.SetToolTip($script:btnPrettifyResponse, "Format the response content (JSON, XML, HTML).")
     $toolTip.SetToolTip($script:btnExportResponse, "Save the content of the response body to a file.")
 
-    # Add controls to panel - Left-docked buttons first, then Right-docked
-    # Add controls to panel
     $responseToolsPanel.Controls.AddRange(@($script:btnPrettifyResponse, $script:btnExportResponse, $script:btnToggleWordWrap, $script:btnGoToLine, $script:btnFind, $script:btnExtractVariable))
     
-    # Refactored: Use a Panel with Docking strategy consistent with main layout
     $responseSearchPanel = New-Object System.Windows.Forms.Panel -Property @{ 
         Dock = 'Top'
         Height = 45
@@ -6841,11 +8025,21 @@ function Invoke-RequestExecution {
         Margin = [System.Windows.Forms.Padding]::new(10, 0, 10, 0)
     }
 
+<#
+.SYNOPSIS
+    Get function.
+.DESCRIPTION
+    Handles logic related to Get.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Get-ResponseSearchMatches {
-        param([string]$SearchText)
-        if ([string]::IsNullOrWhiteSpace($SearchText) -or $SearchText -eq "Find...") { return @() }
+        param([string]$searchText)
+        if ([string]::IsNullOrWhiteSpace($searchText) -or $searchText -eq "Find...") { return @() }
 
-        $escaped = [regex]::Escape($SearchText)
+        $escaped = [regex]::Escape($searchText)
         if ($script:checkSearchWholeWord.Checked) {
             $wordChars = "A-Za-z0-9_-"
             $pattern = "(?<![$wordChars])$escaped(?![$wordChars])"
@@ -6861,30 +8055,37 @@ function Invoke-RequestExecution {
         return @([regex]::Matches($richTextResponse.Text, $pattern, $options))
     }
 
+<#
+.SYNOPSIS
+    Apply function.
+.DESCRIPTION
+    Handles logic related to Apply.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Apply-ResponseSearchHighlights {
         param(
-            [array]$Matches,
-            [int]$CurrentIndex
+            [array]$matches,
+            [int]$currentIndex
         )
-        # Preserve current selection
         $currentSelStart = $richTextResponse.SelectionStart
         $currentSelLength = $richTextResponse.SelectionLength
 
         $richTextResponse.SuspendLayout()
-        # Clear previous highlights
         $richTextResponse.SelectAll()
         $richTextResponse.SelectionBackColor = [System.Drawing.Color]::Empty
         $richTextResponse.DeselectAll()
 
-        if ($Matches -and $Matches.Count -gt 0) {
-            for ($i = 0; $i -lt $Matches.Count; $i++) {
-                $m = $Matches[$i]
+        if ($matches -and $matches.Count -gt 0) {
+            for ($i = 0; $i -lt $matches.Count; $i++) {
+                $m = $matches[$i]
                 $richTextResponse.Select($m.Index, $m.Length)
-                $richTextResponse.SelectionBackColor = if ($i -eq $CurrentIndex) { [System.Drawing.Color]::Orange } else { [System.Drawing.Color]::Yellow }
+                $richTextResponse.SelectionBackColor = if ($i -eq $currentIndex) { [System.Drawing.Color]::Orange } else { [System.Drawing.Color]::Yellow }
             }
         }
 
-        # Restore selection
         $richTextResponse.Select($currentSelStart, $currentSelLength)
         $richTextResponse.ResumeLayout()
     }
@@ -6902,7 +8103,6 @@ function Invoke-RequestExecution {
 
                 $script:labelSearchStatus.Text = "$($matches.Count) Found"
                 $script:labelSearchStatus.ForeColor = [System.Drawing.Color]::Green
-                # Scroll to the first match
                 $richTextResponse.Select($matches[0].Index, 0)
                 $richTextResponse.ScrollToCaret()
             } else {
@@ -6921,9 +8121,8 @@ function Invoke-RequestExecution {
     $script:checkSearchWholeWord.Add_CheckedChanged($searchHandler)
     $script:checkSearchMatchCase.Add_CheckedChanged($searchHandler)
 
-    # Next/Prev Logic
     $findNextPrev = {
-        param($direction) # 1 for Next, -1 for Prev
+        param($direction) 
         $searchText = $script:textSearchResponse.Text
         if ($searchText -eq "Find..." -or [string]::IsNullOrEmpty($searchText)) { return }
 
@@ -6953,7 +8152,7 @@ function Invoke-RequestExecution {
 
         Apply-ResponseSearchHighlights -Matches $matches -CurrentIndex $script:responseSearchCurrentIndex
         $richTextResponse.ScrollToCaret()
-        $richTextResponse.Focus() # Focus RTB to show selection
+        $richTextResponse.Focus() 
     }
     $script:btnSearchNext.Add_Click({ & $findNextPrev 1 })
     $script:btnSearchPrev.Add_Click({ & $findNextPrev -1 })
@@ -6970,10 +8169,8 @@ function Invoke-RequestExecution {
     }
     $toolTip.SetToolTip($script:btnCloseSearch, "Close Find Bar")
 
-    # Add controls to panel - Fill first, then Right-docked controls in order
     $responseSearchPanel.Controls.AddRange(@($script:textSearchResponse, $script:labelSearchStatus, $script:checkSearchWholeWord, $script:checkSearchMatchCase, $script:btnSearchNext, $script:btnSearchPrev, $script:btnCloseSearch))
 
-    # --- Response Extract Panel ---
     $responseExtractPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{
         Dock = 'Top'
         AutoSize = $true
@@ -7192,6 +8389,8 @@ function Invoke-RequestExecution {
                 if (Test-Path $localPath) {
                     Start-Process "explorer.exe" -ArgumentList "/select,`"$localPath`""
                 }
+#endregion
+#region Logging
             } catch { Write-Log "Failed to open file link: $($_.Exception.Message)" -Level Info }
         } else {
             try { Start-Process $linkText } catch { }
@@ -7199,9 +8398,10 @@ function Invoke-RequestExecution {
     })
     $richTextResponse.ContextMenuStrip = New-CopyContextMenu -ParentControl $richTextResponse
 
-    # Add Fill control last to prevent overlap from Top-docked panels.
     $tabResponse.Controls.AddRange(@($responseToolsPanel, $responseSearchPanel, $responseExtractPanel, $richTextResponse))
 
+#endregion
+#region GUI Initialization and Layout
     $tabHeaders = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Response Headers" }
     $richTextResponseHeaders = New-RichTextBox -ReadOnly $true -Property @{ Dock = [System.Windows.Forms.DockStyle]::Fill; DetectUrls = $true; BorderStyle = 'None' }
     $richTextResponseHeaders.ContextMenuStrip = New-CopyContextMenu -ParentControl $richTextResponseHeaders
@@ -7210,7 +8410,6 @@ function Invoke-RequestExecution {
 
     $tabJsonTree = New-Object System.Windows.Forms.TabPage -Property @{ Text = "JSON Tree" }
     
-    # --- JSON Tree Search Panel ---
     $jsonTreeSearchPanel = New-Object System.Windows.Forms.Panel -Property @{ 
         Dock = 'Top'
         Height = 30
@@ -7325,19 +8524,15 @@ function Invoke-RequestExecution {
     
     $richTextCode = New-RichTextBox -ReadOnly $true -Property @{ Dock = [System.Windows.Forms.DockStyle]::Fill; BorderStyle = 'None' }
     $richTextCode.ContextMenuStrip = New-CopyContextMenu -ParentControl $richTextCode
-    # Add the Top-docked panel first, then the Fill-docked text box to ensure correct layout.
     $tabCode.Controls.AddRange(@($panelCodeTools, $richTextCode))
-    # --- Console Tab ---
     $tabConsole = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Console" }
     
     $consoleSplit = New-Object System.Windows.Forms.SplitContainer -Property @{ Dock = 'Fill'; Orientation = 'Horizontal'; SplitterDistance = 200 }
     
-    # Console Output (Top)
     $defaultLang = if ($script:settings.DefaultConsoleLanguage) { $script:settings.DefaultConsoleLanguage } else { "PowerShell" }
     $script:consoleOutput = New-RichTextBox -ReadOnly $true -Property @{ Dock = 'Fill'; BackColor = 'Black'; ForeColor = 'White'; Font = New-Object System.Drawing.Font("Courier New", 9); Text = "Welcome to API Tester Console.`nDefault language: $defaultLang.`nPrefix commands with 'python:', 'js:', 'php:', 'ruby:', 'go:', 'bat:', 'bash:' to switch languages.`nExample: python: print('Hello')`n`n"; BorderStyle = 'None' }
     $script:consoleOutput.ContextMenuStrip = New-CopyContextMenu -ParentControl $script:consoleOutput
     
-    # Console Input (Bottom)
     $consoleInputPanel = New-Object System.Windows.Forms.Panel -Property @{ Dock = 'Fill' }
     $consoleToolbar = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Top'; AutoSize = $true; AutoSizeMode = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink; Padding = [System.Windows.Forms.Padding]::new(3) }
     
@@ -7347,7 +8542,6 @@ function Invoke-RequestExecution {
         $code = $script:consoleInput.Text
         if ([string]::IsNullOrWhiteSpace($code) -or $code -eq $script:consolePlaceholder) { return }
         
-        # Language Detection and Parsing
         $lang = if ($script:settings.DefaultConsoleLanguage) { $script:settings.DefaultConsoleLanguage } else { "PowerShell" }
         $scriptToRun = $code
         
@@ -7360,7 +8554,6 @@ function Invoke-RequestExecution {
         elseif ($code -match '^(bash|sh):\s*(.*)') { $lang = "Bash"; $scriptToRun = $matches[2] }
         elseif ($code -match '^(ps|pwsh|powershell):\s*(.*)') { $lang = "PowerShell"; $scriptToRun = $matches[2] }
 
-        # Echo Input
         $script:consoleOutput.SelectionColor = [System.Drawing.Color]::LightGray
         $script:consoleOutput.AppendText("> $code`n")
         $script:consoleOutput.SelectionColor = [System.Drawing.Color]::White
@@ -7368,11 +8561,9 @@ function Invoke-RequestExecution {
         
         try {
             if ($lang -eq "PowerShell") {
-                # Run in the current session to allow manipulation of form variables
                 $output = Invoke-Expression $scriptToRun | Out-String
                 $script:consoleOutput.AppendText($output)
             } else {
-                # External execution
                 $fileName = [System.IO.Path]::GetTempFileName()
                 $argsList = @()
                 $exe = ""
@@ -7445,7 +8636,6 @@ function Invoke-RequestExecution {
         }
     })
 
-    # Basic Syntax Highlighting for Console Input
     $script:isHighlighting = $false
     $script:consoleInput.Add_TextChanged({
         if ($script:isHighlighting) { return }
@@ -7460,12 +8650,10 @@ function Invoke-RequestExecution {
         $rtb.SelectionColor = [System.Drawing.Color]::White
         
         $text = $rtb.Text
-        # Keywords (Blue)
         $keywords = "\b(if|else|elseif|for|foreach|return|function|var|let|const|try|catch|switch|case|while|do|class|import|from|def|end|param|in|echo|print|write-host)\b"
         [regex]::Matches($text, $keywords, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase) | ForEach-Object {
             $rtb.Select($_.Index, $_.Length); $rtb.SelectionColor = [System.Drawing.Color]::LightSkyBlue
         }
-        # Strings (Orange)
         [regex]::Matches($text, "(['`"])(?:\\\1|.)*?\1") | ForEach-Object {
             $rtb.Select($_.Index, $_.Length); $rtb.SelectionColor = [System.Drawing.Color]::LightSalmon
         }
@@ -7493,7 +8681,6 @@ function Invoke-RequestExecution {
     $webBrowserPreview = New-Object System.Windows.Forms.WebBrowser -Property @{ Dock = 'Fill'; Visible = $false }
     $pictureBoxPreview = New-Object System.Windows.Forms.PictureBox -Property @{ Dock = 'Fill'; SizeMode = 'Zoom'; Visible = $false }
     $tabPreview.Controls.AddRange(@($webBrowserPreview, $pictureBoxPreview))
-    # Visibility is managed during response processing
 
     $tabTestResults = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Test Results" }
     $script:richTextTestResults = New-RichTextBox -ReadOnly $true -Property @{ Dock = [System.Windows.Forms.DockStyle]::Fill; BorderStyle = 'None' }
@@ -7502,31 +8689,39 @@ function Invoke-RequestExecution {
 
     $groupResponse.Controls.Add($tabControlResponse)
 
-    # GroupBox for the request history list.
     $groupHistory = New-Object System.Windows.Forms.GroupBox -Property @{
         Dock     = [System.Windows.Forms.DockStyle]::Fill
-        Padding  = [System.Windows.Forms.Padding]::new(3, 3, 3, 3) # Add padding
+        Padding  = [System.Windows.Forms.Padding]::new(3, 3, 3, 3) 
         Text     = "Collections & History"
         BackColor = $script:Theme.GroupBackground
     }
 
-    # Populates the history listbox from the $script:history array.
-    function Populate-HistoryList { # Renamed from Populate-HistoryTab
+<#
+.SYNOPSIS
+    Populate function.
+.DESCRIPTION
+    Handles logic related to Populate.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
+    function Populate-HistoryList { 
         param(
-            [string]$TextFilter,
-            [string]$EnvironmentFilter
+            [string]$textFilter,
+            [string]$environmentFilter
         )
 
         $listHistory.Items.Clear()
-        $listHistory.DisplayMember = "Display" # Use the 'Display' property for the text
+        $listHistory.DisplayMember = "Display" # 'Display' property for the text
         $itemsToShow = $script:history | Where-Object { $_ -ne $null }
 
-        if (-not [string]::IsNullOrWhiteSpace($TextFilter)) {
-            $itemsToShow = $itemsToShow | Where-Object { $_.Method -like "*$TextFilter*" -or $_.Url -like "*$TextFilter*" }
+        if (-not [string]::IsNullOrWhiteSpace($textFilter)) {
+            $itemsToShow = $itemsToShow | Where-Object { $_.Method -like "*$textFilter*" -or $_.Url -like "*$textFilter*" }
         }
 
-        if ($EnvironmentFilter -and $EnvironmentFilter -ne "All Environments") {
-            $itemsToShow = $itemsToShow | Where-Object { $_.Environment -eq $EnvironmentFilter }
+        if ($environmentFilter -and $environmentFilter -ne "All Environments") {
+            $itemsToShow = $itemsToShow | Where-Object { $_.Environment -eq $environmentFilter }
         }
 
         foreach ($item in $itemsToShow) {
@@ -7554,6 +8749,16 @@ function Invoke-RequestExecution {
         }
     }
 
+<#
+.SYNOPSIS
+    Populate function.
+.DESCRIPTION
+    Handles logic related to Populate.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Populate-HistoryEnvironmentFilter {
         $currentSelection = $comboHistoryEnvFilter.SelectedItem
         $comboHistoryEnvFilter.Items.Clear()
@@ -7562,29 +8767,48 @@ function Invoke-RequestExecution {
         if ($currentSelection -and $comboHistoryEnvFilter.Items.Contains($currentSelection)) { $comboHistoryEnvFilter.SelectedItem = $currentSelection } else { $comboHistoryEnvFilter.SelectedItem = "All Environments" }
     }
 
-    # Recursively populates the TreeView with collections, folders, and requests.
+<#
+.SYNOPSIS
+    Populate function.
+.DESCRIPTION
+    Handles logic related to Populate.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Populate-CollectionsTreeView {
         param ([System.Windows.Forms.TreeNodeCollection]$nodes, [array]$items)
 
         $nodes.Clear()
         foreach ($item in $items) {
             $newNode = New-Object System.Windows.Forms.TreeNode($item.Name)
-            $newNode.Tag = $item # Store the full object
+            $newNode.Tag = $item 
             if ($item.Type -eq "Collection") {
                 $newNode.ImageIndex = 0
                 $newNode.SelectedImageIndex = 0
             } elseif ($item.Type -eq "Folder") {
                 $newNode.ImageIndex = 1
                 $newNode.SelectedImageIndex = 1
-            } else { # Request
+            } else { 
                 $newNode.ImageIndex = 2
                 $newNode.SelectedImageIndex = 2
             }
-        $nodes.Add($newNode) | Out-Null # Add node to TreeView
+        $nodes.Add($newNode) | Out-Null 
             if ($item.Items) { Populate-CollectionsTreeView -nodes $newNode.Nodes -items $item.Items }
         }
     }
 
+<#
+.SYNOPSIS
+    Get function.
+.DESCRIPTION
+    Handles logic related to Get.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Get-CollectionNodeFromChild {
         param([System.Windows.Forms.TreeNode]$node)
         $current = $node
@@ -7606,40 +8830,35 @@ function Invoke-RequestExecution {
     $historyPanelContextMenu.Items.Add($dockUndockMenuItem)
     $groupHistory.ContextMenuStrip = $historyPanelContextMenu
     
-    # --- NEW: TabControl for Collections and History ---
     $collectionsTabControl = New-Object System.Windows.Forms.TabControl -Property @{
         Dock = [System.Windows.Forms.DockStyle]::Fill
     }
 
-    # --- Collections Tab ---
     $tabCollections = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Collections" }
     $treeViewCollections = New-Object System.Windows.Forms.TreeView -Property @{
         Dock = [System.Windows.Forms.DockStyle]::Fill
         ShowNodeToolTips = $true
     }
-    # Add an ImageList for icons
     $imageList = New-Object System.Windows.Forms.ImageList
-    # Simple icons for Collection (folder), Folder (subfolder), and Request (file)
-    $imageList.Images.Add([System.Drawing.SystemIcons]::Application) # Collection
-    $imageList.Images.Add([System.Drawing.SystemIcons]::Information) # Folder
-    $imageList.Images.Add([System.Drawing.SystemIcons]::Question)    # Request
+    $imageList.Images.Add([System.Drawing.SystemIcons]::Application) 
+    $imageList.Images.Add([System.Drawing.SystemIcons]::Information) 
+    $imageList.Images.Add([System.Drawing.SystemIcons]::Question)    
     $treeViewCollections.ImageList = $imageList
 
-    # --- Collections Context Menu ---
     $collectionsContextMenu = New-Object System.Windows.Forms.ContextMenuStrip
     $addCollectionMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("New Collection", $null, {
         $name = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new collection name:", "New Collection")
         if ($name) {
-            $newCollection = [PSCustomObject]@{ Name = $name; Type = "Collection"; Items = @(); Variables = @{} } # Create new collection object
+            $newCollection = [PSCustomObject]@{ Name = $name; Type = "Collection"; Items = @(); Variables = @{} } 
             $script:collections += $newCollection
             Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
-            Save-Collections #FIX: Corrected function call
+            Save-Collections 
         }
     })
     $addFolderMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("New Folder", $null, {
         $selectedNode = $treeViewCollections.SelectedNode
         if ($selectedNode) {
-            $name = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new folder name:", "New Folder") # Prompt for folder name
+            $name = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new folder name:", "New Folder") 
             if ($name) {
                 $newFolder = [PSCustomObject]@{ Name = $name; Type = "Folder"; Items = @() }
                 $selectedNode.Tag.Items += $newFolder
@@ -7652,7 +8871,7 @@ function Invoke-RequestExecution {
     $saveRequestMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Save Current Request", $null, {
         $selectedNode = $treeViewCollections.SelectedNode
         if ($selectedNode) {
-            $name = [Microsoft.VisualBasic.Interaction]::InputBox("Enter request name:", "Save Request", "$($script:comboMethod.SelectedItem) $($script:textUrl.Text)") # Prompt for request name
+            $name = [Microsoft.VisualBasic.Interaction]::InputBox("Enter request name:", "Save Request", "$($script:comboMethod.SelectedItem) $($script:textUrl.Text)") 
             if ($name) {
                 $newRequest = [PSCustomObject]@{
                     Name = $name
@@ -7683,6 +8902,8 @@ function Invoke-RequestExecution {
             $col = $selectedNode.Tag
             $currentVars = if ($col.PSObject.Properties.Name -contains 'Variables' -and $col.Variables) { $col.Variables } else { @{} }
             $result = Show-VariablesEditor -parentForm $form -Title "Collection Variables: $($col.Name)" -Variables $currentVars
+#endregion
+#region Logging
             if ($result.Result -eq [System.Windows.Forms.DialogResult]::OK) {
                 $col.Variables = if ($result.Variables) { $result.Variables } else { @{} }
                 Save-Collections
@@ -7696,10 +8917,12 @@ function Invoke-RequestExecution {
             }
         }
     })
+#endregion
+#region GUI Initialization and Layout
     $renameMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Rename", $null, {
         $selectedNode = $treeViewCollections.SelectedNode
         if ($selectedNode) {
-            $newName = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new name:", "Rename", $selectedNode.Text) # Prompt for new name
+            $newName = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new name:", "Rename", $selectedNode.Text) 
             if ($newName) {
                 $selectedNode.Tag.Name = $newName
                 $selectedNode.Text = $newName
@@ -7710,12 +8933,12 @@ function Invoke-RequestExecution {
     $deleteMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Delete", $null, {
         $selectedNode = $treeViewCollections.SelectedNode
         if ($selectedNode) {
-            $confirm = [System.Windows.Forms.MessageBox]::Show("Are you sure you want to delete '$($selectedNode.Text)'?", "Confirm Delete", "YesNo", "Warning") # Confirmation dialog
+            $confirm = [System.Windows.Forms.MessageBox]::Show("Are you sure you want to delete '$($selectedNode.Text)'?", "Confirm Delete", "YesNo", "Warning") 
             if ($confirm -eq 'Yes') {
                 $parent = $selectedNode.Parent
                 if ($parent) {
                     $parent.Tag.Items = @($parent.Tag.Items | Where-Object { $_ -ne $selectedNode.Tag })
-                } else { # Top-level collection
+                } else { 
                     $script:collections = @($script:collections | Where-Object { $_ -ne $selectedNode.Tag })
                 }
                 $selectedNode.Remove()
@@ -7726,14 +8949,22 @@ function Invoke-RequestExecution {
     $exportFolderMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Export Folder...", $null, {
         $selectedNode = $treeViewCollections.SelectedNode
         if ($selectedNode) {
+#endregion
+#region Logging
             $sfd = New-Object System.Windows.Forms.SaveFileDialog -Property @{ 
                 Filter = "JSON Files (*.json)|*.json"; 
                 FileName = "$($selectedNode.Text)_export.json"; 
                 Title = "Export Folder" 
             }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
             if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 try {
                     $selectedNode.Tag | ConvertTo-Json -Depth 10 | Set-Content -Path $sfd.FileName -ErrorAction Stop
+#endregion
+#region GUI Initialization and Layout
                     [System.Windows.Forms.MessageBox]::Show("Folder exported successfully.", "Export", "OK", "Information")
                 } catch { [System.Windows.Forms.MessageBox]::Show("Export failed: $($_.Exception.Message)", "Error", "OK", "Error") }
             }
@@ -7777,7 +9008,6 @@ function Invoke-RequestExecution {
 
     $treeViewCollections.Add_NodeMouseClick({
         param($sender, $e)
-        # Select node on right-click to make context menu work intuitively
         if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
             $treeViewCollections.SelectedNode = $e.Node
         }
@@ -7795,10 +9025,10 @@ function Invoke-RequestExecution {
                     & $updateExtractVarList
                 }
             } elseif ($selectedNode.Tag.Type -eq "Request") {
-                # Load the request data into the form
                 $selectedHistoryItem = $selectedNode.Tag.RequestData
-                # This reuses the existing history loading logic
                 Load-Request-From-Object -RequestObject $selectedHistoryItem
+#endregion
+#region Logging
                 Write-Log "Loaded request '$($selectedNode.Tag.Name)' from collection."
 
                 $collectionNode = Get-CollectionNodeFromChild -node $selectedNode
@@ -7824,7 +9054,8 @@ function Invoke-RequestExecution {
         }
     })
 
-    # Refactored: Use a Panel with Docking strategy consistent with History tab
+#endregion
+#region GUI Initialization and Layout
     $panelCollectionsBottom = New-Object System.Windows.Forms.Panel -Property @{ 
         Dock = 'Bottom'
         Height = 60 
@@ -7836,9 +9067,19 @@ function Invoke-RequestExecution {
         Width = 180 
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 10, 0) 
     } -OnClick {
+#endregion
+#region Logging
         $ofd = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter = "JSON Files (*.json)|*.json"; Title = "Import Collections" }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+#endregion
+#region GUI Initialization and Layout
             $confirm = [System.Windows.Forms.MessageBox]::Show("Are you sure you want to import collections? This will append the imported items to your current list.", "Confirm Import", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
+#endregion
+#region Logging
             if ($confirm -eq [System.Windows.Forms.DialogResult]::Yes) {
                 try {
                     $imported = Get-Content -Path $ofd.FileName -Raw | ConvertFrom-Json
@@ -7851,6 +9092,8 @@ function Invoke-RequestExecution {
                             Ensure-CollectionVariables -Items $script:collections
                             Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
                             Save-Collections
+#endregion
+#region GUI Initialization and Layout
                             [System.Windows.Forms.MessageBox]::Show("Collections imported successfully.", "Import", "OK", "Information")
                         }
                 } catch { [System.Windows.Forms.MessageBox]::Show("Import failed: $($_.Exception.Message)", "Error", "OK", "Error") }
@@ -7863,24 +9106,29 @@ function Invoke-RequestExecution {
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0)
         Width = 180
     } -OnClick {
+#endregion
+#region Logging
         $sfd = New-Object System.Windows.Forms.SaveFileDialog -Property @{ Filter = "JSON Files (*.json)|*.json"; FileName = "api_tester_collections_export.json"; Title = "Export Collections" }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
                 $script:collections | ConvertTo-Json -Depth 10 | Set-Content -Path $sfd.FileName -ErrorAction Stop
+#endregion
+#region GUI Initialization and Layout
                 [System.Windows.Forms.MessageBox]::Show("Collections exported successfully.", "Export", "OK", "Information")
             } catch { [System.Windows.Forms.MessageBox]::Show("Export failed: $($_.Exception.Message)", "Error", "OK", "Error") }
         }
     }
 
-    # Add controls in docking order (Left, then Left)
     $panelCollectionsBottom.Controls.AddRange(@($btnImportCollections, $btnExportCollections))
 
     $tabCollections.Controls.AddRange(@($treeViewCollections, $panelCollectionsBottom))
 
-    # --- History Tab ---
     $tabHistory = New-Object System.Windows.Forms.TabPage -Property @{ Text = "History" }
     
-    # Refactored: Use a Panel with Docking strategy consistent with main layout
     $searchHistoryPanel = New-Object System.Windows.Forms.Panel -Property @{ 
         Dock = 'Top'
         Height = 45
@@ -7903,7 +9151,6 @@ function Invoke-RequestExecution {
     }
     $toolTip.SetToolTip($textSearchHistory, "Search by method or URL")
 
-    # Add placeholder text functionality
     $textSearchHistory.Add_Enter({ 
         if ($textSearchHistory.Text -eq "Search by Method/URL...") { 
             $textSearchHistory.Text = ""; 
@@ -7917,10 +9164,8 @@ function Invoke-RequestExecution {
         } 
     })
 
-    # Add the event handler to filter the list as the user types
     $textSearchHistory.Add_TextChanged({
         param($sender, $e)
-        # Avoid filtering when the placeholder text is present
         if ($sender.Text -ne "Search by Method/URL...") {
             Populate-HistoryList -TextFilter $sender.Text -EnvironmentFilter $comboHistoryEnvFilter.SelectedItem
         }
@@ -7931,15 +9176,12 @@ function Invoke-RequestExecution {
         Populate-HistoryList -TextFilter $textFilter -EnvironmentFilter $comboHistoryEnvFilter.SelectedItem
     })
 
-    # Add controls to panel and apply docking precedence
-    # Note: Search field (Fill) first, then dropdown (Right) to ensure proper layout
     $searchHistoryPanel.Controls.AddRange(@($textSearchHistory, $comboHistoryEnvFilter))
 
     $listHistory = New-Object System.Windows.Forms.ListBox -Property @{
         Dock = [System.Windows.Forms.DockStyle]::Fill
     }
     
-    # Refactored: Use a Panel with Docking strategy consistent with Collections tab
     $panelHistoryBottom = New-Object System.Windows.Forms.Panel -Property @{ 
         Dock = 'Bottom'
         Height = 60 
@@ -7952,6 +9194,8 @@ function Invoke-RequestExecution {
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 10, 0) 
     } -OnClick {
         $result = [System.Windows.Forms.MessageBox]::Show("Are you sure you want to clear all history? This cannot be undone.", "Confirm Clear", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+#endregion
+#region Logging
         if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
             $script:history = @()
             $listHistory.Items.Clear()
@@ -7963,10 +9207,20 @@ function Invoke-RequestExecution {
         Dock = 'Left'
         Width = 180
     } -OnClick {
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         $sfd = New-Object System.Windows.Forms.SaveFileDialog -Property @{ Filter = "JSON Files (*.json)|*.json"; FileName = "api_tester_history_export.json"; Title = "Export History" }
+#endregion
+#region GUI Initialization and Layout
+#endregion
+#region Logging
         if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
                 $script:history | ConvertTo-Json -Depth 10 | Set-Content -Path $sfd.FileName -ErrorAction Stop
+#endregion
+#region GUI Initialization and Layout
                 [System.Windows.Forms.MessageBox]::Show("History exported successfully.", "Export", "OK", "Information")
             } catch { [System.Windows.Forms.MessageBox]::Show("Export failed: $($_.Exception.Message)", "Error", "OK", "Error") }
         }
@@ -7983,9 +9237,13 @@ function Invoke-RequestExecution {
             $script:activeCollectionNode = $null
             $script:activeCollectionVariables = @{}
             Load-Request-From-Object -RequestObject $historyObject
+#endregion
+#region Logging
             Write-Log "Duplicated request from history: $($historyObject.Url)"
         }
     })
+#endregion
+#region GUI Initialization and Layout
     $deleteHistoryItem = New-Object System.Windows.Forms.ToolStripMenuItem("Delete", $null, {
         $selectedItem = $listHistory.SelectedItem
         if ($selectedItem) {
@@ -7993,24 +9251,34 @@ function Invoke-RequestExecution {
             $listHistory.Items.Remove($selectedItem)
             $script:history = $script:history | Where-Object { $_ -ne $historyObjectToRemove }
             Save-History
+#endregion
+#region Logging
             Write-Log "Deleted history item: $($historyObjectToRemove.Url)"
         }
     })    
+#endregion
+#region GUI Initialization and Layout
     $copyAsCurlMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Copy as cURL", $null, {
         $selectedItem = $listHistory.SelectedItem
         if ($selectedItem) {
             $selectedHistoryItem = $selectedItem.Value
             $curlCommand = Generate-CodeSnippet -RequestItem $selectedHistoryItem -Language "cURL"
-            [System.Windows.Forms.Clipboard]::SetText($curlCommand) # Copy to clipboard
+            [System.Windows.Forms.Clipboard]::SetText($curlCommand) 
+#endregion
+#region Logging
             Write-Log "Copied history item as cURL command to clipboard."
         }
     })
+#endregion
+#region GUI Initialization and Layout
     $copyAsPSMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Copy as PowerShell", $null, {
         $selectedItem = $listHistory.SelectedItem
         if ($selectedItem) {
             $selectedHistoryItem = $selectedItem.Value
             $psCommand = Generate-CodeSnippet -RequestItem $selectedHistoryItem -Language "PowerShell"
             [System.Windows.Forms.Clipboard]::SetText($psCommand)
+#endregion
+#region Logging
             Write-Log "Copied history item as PowerShell command to clipboard."
         }
     })
@@ -8020,6 +9288,8 @@ function Invoke-RequestExecution {
 
     $listHistory.Add_MouseDown({
         param($sender, $e)
+#endregion
+#region GUI Initialization and Layout
         if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
             $index = $listHistory.IndexFromPoint($e.Location)
             if ($index -ne [System.Windows.Forms.ListBox]::NoMatches) {
@@ -8031,24 +9301,30 @@ function Invoke-RequestExecution {
         $_.Cancel = ($listHistory.SelectedIndex -eq -1)
     })
 
-    # Central function to load a request object into the UI fields
+<#
+.SYNOPSIS
+    Load function.
+.DESCRIPTION
+    Handles logic related to Load.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
     function Load-Request-From-Object {
         param(
-            # Accept the named parameter used elsewhere (-RequestObject) and positional calls.
             [Parameter(Mandatory=$true, Position=0)]
-            [PSCustomObject]$RequestObject
+            [PSCustomObject]$requestObject
         )
 
-        # If caller used the old variable name internally, normalize to $selectedHistoryItem for the rest of the function.
-        $selectedHistoryItem = $RequestObject
+        $selectedHistoryItem = $requestObject
         if (-not $selectedHistoryItem) { return }
 
         $script:textUrl.Text = $selectedHistoryItem.Url
         $script:comboMethod.SelectedItem = $selectedHistoryItem.Method
         $script:comboBodyType.SelectedItem = $selectedHistoryItem.BodyType
         
-        # Directly apply the logic that would normally be in SelectedIndexChanged
-        if ($script:comboBodyType.SelectedItem -eq "multipart/form-data") { # Update UI based on body type
+        if ($script:comboBodyType.SelectedItem -eq "multipart/form-data") { 
             $checkIncludeFilename.Visible = $true
             $checkIncludeContentType.Visible = $true
             $labelBody.Text = "Body (key=value per line. Press '@' to add a file):"
@@ -8094,13 +9370,12 @@ function Invoke-RequestExecution {
         }
 
         if ($selectedHistoryItem.PSObject.Properties.Name -contains 'Authentication') {
-            # Temporarily remove the event handler to prevent it from firing and clearing the panel
-            $authTypeChangedHandler = $script:authPanel.ComboAuthType.SelectedIndexChanged # Store event handler
+            $authTypeChangedHandler = $script:authPanel.ComboAuthType.SelectedIndexChanged 
             $script:authPanel.ComboAuthType.remove_SelectedIndexChanged($authTypeChangedHandler)
 
             $auth = $selectedHistoryItem.Authentication
             $script:authPanel.ComboAuthType.SelectedItem = $auth.Type
-            & $script:authPanel.SwitchPanel # Manually trigger the panel switch
+            & $script:authPanel.SwitchPanel 
             switch ($auth.Type) {
                 "API Key"      { $script:authPanel.TextApiKeyName.Text = $auth.Key; $script:authPanel.TextApiKeyValue.Text = $auth.Value; $script:authPanel.ComboApiKeyAddTo.SelectedItem = $auth.AddTo }
                 "Bearer Token" { $script:authPanel.TextBearerToken.Text = $auth.Token }
@@ -8123,19 +9398,15 @@ function Invoke-RequestExecution {
                 }
             }
 
-            # Re-add the event handler
-            $script:authPanel.ComboAuthType.add_SelectedIndexChanged($authTypeChangedHandler) # Re-add event handler
+            $script:authPanel.ComboAuthType.add_SelectedIndexChanged($authTypeChangedHandler) 
         } else {
             $script:authPanel.ComboAuthType.SelectedItem = "No Auth"
         }
 
         $checkIncludeFilename.Checked = $script:settings.IncludeFilename
         $checkIncludeContentType.Checked = $script:settings.IncludeContentType
-        # After loading the body and setting the checkboxes, re-apply the attributes
-        # to ensure the file lines are correctly formatted for the current settings.
         Apply-Attributes-To-AllFileLines
 
-        # Update Code Snippet
         $currentUiRequest = [PSCustomObject]@{
             Method = $script:comboMethod.SelectedItem
             Url = $script:textUrl.Text
@@ -8173,7 +9444,6 @@ function Invoke-RequestExecution {
     Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
 
     $listHistory.Add_SelectedIndexChanged({
-        # This event is intentionally left empty to prevent a race condition with the DoubleClick event.
     })
 
     $checkIncludeFilename.Add_CheckedChanged({
@@ -8194,17 +9464,16 @@ function Invoke-RequestExecution {
             $script:activeCollectionNode = $null
             $script:activeCollectionVariables = @{}
             Load-Request-From-Object -RequestObject $selectedHistoryItem
+#endregion
+#region Logging
             Write-Log "Loaded request from history via double-click (URL: $($selectedHistoryItem.Url))"
 
-            # Force the message queue to process all pending UI updates from Load-Request-From-Object
-            # before checking the body content for auto-run.
+#endregion
+#region GUI Initialization and Layout
             [System.Windows.Forms.Application]::DoEvents()
             
-            # Now that the data is loaded and the UI is updated, check if we should auto-run.
             if ($script:settings.AutoRunHistory) {
                 $method = $script:comboMethod.Text
-                # Check if the method requires a body and if the body is actually empty.
-                # This check now happens *after* DoEvents() ensures the textbox is populated.
                 if (($method -in @('POST', 'PUT', 'PATCH')) -and ([string]::IsNullOrWhiteSpace($script:textBody.Text))) {
                     [System.Windows.Forms.MessageBox]::Show("Cannot auto-run a $method request with an empty body. Please provide a body or run the request manually.", "Missing Request Data", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
                 } else {
@@ -8216,12 +9485,10 @@ function Invoke-RequestExecution {
 
     $groupRequest.Controls.Add($panelRequestTop)
     $groupRequest.Controls.Add($requestTabControl)
-    # Ensure correct Z-order: TabControl (Fill) at index 0 (Front), Panel (Top) at index 1 (Back)
     $groupRequest.Controls.SetChildIndex($requestTabControl, 0)
     $groupRequest.Controls.SetChildIndex($panelRequestTop, 1)
     $groupHistory.Controls.Add($collectionsTabControl)
 
-    # Add controls to the SplitContainer panels
     $mainContentPanel.Controls.AddRange(@(
         $groupEnvironment,
         $groupRequest,        $groupOutput    ))
@@ -8236,7 +9503,6 @@ function Invoke-RequestExecution {
 
     Populate-EnvironmentDropdown
     Populate-HistoryEnvironmentFilter
-    # Restore the last used environment if it exists
     if ($script:settings.LastActiveEnvironment -and $script:comboEnvironment.Items.Contains($script:settings.LastActiveEnvironment)) {
         $script:comboEnvironment.SelectedItem = $script:settings.LastActiveEnvironment
     }
@@ -8248,15 +9514,11 @@ function Invoke-RequestExecution {
     Update-Layout
 
     $form.Add_Shown({
-        # A second call to Update-Layout after the form is shown ensures all control
-        # dimensions are correctly calculated for the final layout.
-        Update-Layout # Initial layout update
+        Update-Layout 
     })
 
-    # Add global keyboard shortcuts
     $form.Add_KeyDown({
         param($sender, $e)
-        # Ctrl+Enter to Send Request
         if ($e.Control -and $e.KeyCode -eq 'Enter') {
             if ($btnSubmit.Enabled) {
                 $btnSubmit.PerformClick()
@@ -8265,39 +9527,46 @@ function Invoke-RequestExecution {
         }
     })
 
-    # Add a FormClosing handler to the main form for proper cleanup of undocked windows
     $form.Add_FormClosing({
         param($sender, $e)
+#endregion
+#region Logging
         Write-Log "Main form closing event triggered."
-        # Set flag to indicate main form is closing
         $script:isMainFormClosing = $true
-        # Explicitly dispose of undocked forms if they exist and are not disposed
-        # This ensures they are cleaned up and don't prevent the main form from closing.
+#endregion
+#region GUI Initialization and Layout
         if ($script:historyForm -and -not $script:historyForm.IsDisposed) {
+#endregion
+#region Logging
             Write-Log "Disposing undocked history form."
+#endregion
+#region GUI Initialization and Layout
             $script:historyForm.Dispose()
-            $script:historyForm = $null # Clear reference
+            $script:historyForm = $null 
         }
         if ($script:responseForm -and -not $script:responseForm.IsDisposed) {
+#endregion
+#region Logging
             Write-Log "Disposing undocked response form."
-            $script:responseForm.Dispose() # Dispose undocked response form
+#endregion
+#region GUI Initialization and Layout
+            $script:responseForm.Dispose() 
             $script:responseForm = $null
         }
-        # Cleanup RunspacePool
         if ($script:monitorPool) {
             $script:monitorPool.Close()
             $script:monitorPool.Dispose()
             $script:monitorPool = $null
         }
-        # Perform cleanup for background jobs and timers
-        # (The cleanup after Application::Run is still there, but this is more robust)
-        # Allow the main form to close
         $e.Cancel = $false
+#endregion
+#region Logging
         Write-Log "Main form allowed to close."
     })
-    $form.Add_Shown({$form.Activate()}) # Activate the form when shown
-    [System.Windows.Forms.Application]::Run($form) # Run the Windows Forms application
-    # Perform cleanup after the main form is closed.
+    $form.Add_Shown({$form.Activate()}) 
+#endregion
+#region GUI Initialization and Layout
+    [System.Windows.Forms.Application]::Run($form) 
     if ($script:currentPowerShell) { $script:currentPowerShell.Dispose() }
     foreach ($mId in $script:monitorJobs.Keys) {
         $entry = $script:monitorJobs[$mId]
@@ -8306,51 +9575,62 @@ function Invoke-RequestExecution {
     if ($script:monitorPool) { $script:monitorPool.Close(); $script:monitorPool.Dispose() }
     if ($script:requestTimer) { $script:requestTimer.Stop(); $script:requestTimer.Dispose() }
     if ($script:historyForm -and -not $script:historyForm.IsDisposed) { $script:historyForm.Dispose() }
-    if ($script:responseForm -and -not $script:responseForm.IsDisposed) { $script:responseForm.Dispose() } # Ensure response form is disposed
+    if ($script:responseForm -and -not $script:responseForm.IsDisposed) { $script:responseForm.Dispose() } 
     if ($notifyIcon) { $notifyIcon.Dispose() }
-    $form.Dispose() # Release main form resources
+    $form.Dispose() 
 }
 
-#endregion
 
 
+<#
+.SYNOPSIS
+    Invoke function.
+.DESCRIPTION
+    Handles logic related to Invoke.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Invoke-ApiRequest {
     param(
-        [Parameter(Mandatory=$true)][string]$Url,
-        [string]$Method = 'GET',
-        [string]$Headers = '',
-        [string]$Body = '',
-        [string]$BodyType = 'raw',
-        [string[]]$Files = @(),
-        [int]$TimeoutSeconds = 30
+        [Parameter(Mandatory=$true)][string]$url,
+        [string]$method = 'GET',
+        [string]$headers = '',
+        [string]$body = '',
+        [string]$bodyType = 'raw',
+        [string[]]$files = @(),
+        [int]$timeoutSeconds = 30
     )
     try {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
+#endregion
+#region API Execution
         $client = New-Object System.Net.Http.HttpClient
-        $methodObj = [System.Net.Http.HttpMethod]::new($Method)
-        $req = New-Object System.Net.Http.HttpRequestMessage($methodObj, $Url)
+        $methodObj = [System.Net.Http.HttpMethod]::new($method)
+        $req = New-Object System.Net.Http.HttpRequestMessage($methodObj, $url)
 
-        if ($Headers) {
-            $lines = $Headers -split "`r?`n" | Where-Object { $_ -match '\S' }
+        if ($headers) {
+            $lines = $headers -split "`r?`n" | Where-Object { $_ -match '\S' }
             foreach ($l in $lines) { if ($l -match '^\s*([^:]+)\s*:\s*(.+)$') { $req.Headers.TryAddWithoutValidation($matches[1], $matches[2]) | Out-Null } }
         }
 
-        if ($Files.Count -gt 0 -or $BodyType -eq 'multipart/form-data') {
+        if ($files.Count -gt 0 -or $bodyType -eq 'multipart/form-data') {
             $multi = New-Object System.Net.Http.MultipartFormDataContent
-            if ($Body) { $lines = $Body -split "`r?`n" | Where-Object { $_ -match '\S' }; foreach ($l in $lines) { if ($l -match '=') { $p=$l.Split('=',2); $multi.Add((New-Object System.Net.Http.StringContent($p[1])),$p[0]) } else { $multi.Add((New-Object System.Net.Http.StringContent($l)),'body') } } }
-            foreach ($f in $Files) { if (Test-Path $f) { $bytes = [System.IO.File]::ReadAllBytes($f); $content = New-Object System.Net.Http.ByteArrayContent($bytes); $content.Headers.ContentDisposition = New-Object System.Net.Http.Headers.ContentDispositionHeaderValue('form-data'); $content.Headers.ContentDisposition.Name = 'file'; $content.Headers.ContentDisposition.FileName = [System.IO.Path]::GetFileName($f); $multi.Add($content,'file',[System.IO.Path]::GetFileName($f)) } }
+            if ($body) { $lines = $body -split "`r?`n" | Where-Object { $_ -match '\S' }; foreach ($l in $lines) { if ($l -match '=') { $p=$l.Split('=',2); $multi.Add((New-Object System.Net.Http.StringContent($p[1])),$p[0]) } else { $multi.Add((New-Object System.Net.Http.StringContent($l)),'body') } } }
+            foreach ($f in $files) { if (Test-Path $f) { $bytes = [System.IO.File]::ReadAllBytes($f); $content = New-Object System.Net.Http.ByteArrayContent($bytes); $content.Headers.ContentDisposition = New-Object System.Net.Http.Headers.ContentDispositionHeaderValue('form-data'); $content.Headers.ContentDisposition.Name = 'file'; $content.Headers.ContentDisposition.FileName = [System.IO.Path]::GetFileName($f); $multi.Add($content,'file',[System.IO.Path]::GetFileName($f)) } }
             $req.Content = $multi
         }
-        elseif ($BodyType -eq 'application/x-www-form-urlencoded') {
+        elseif ($bodyType -eq 'application/x-www-form-urlencoded') {
             $pairs = @()
-            if ($Body) { foreach ($l in $Body -split "`r?`n") { if ($l -match '=') { $p = $l.Split('=',2); $pairs += [System.Collections.Generic.KeyValuePair[string,string]]::new($p[0],$p[1]) } } }
+            if ($body) { foreach ($l in $body -split "`r?`n") { if ($l -match '=') { $p = $l.Split('=',2); $pairs += [System.Collections.Generic.KeyValuePair[string,string]]::new($p[0],$p[1]) } } }
             $req.Content = New-Object System.Net.Http.FormUrlEncodedContent($pairs)
         }
-        elseif ($BodyType -match 'graphql') {
-            $payload = "{`"query`":`"$($Body -replace '"','\"')`"}"
+        elseif ($bodyType -match 'graphql') {
+            $payload = "{`"query`":`"$($body -replace '"','\"')`"}"
             $req.Content = New-Object System.Net.Http.StringContent($payload,[System.Text.Encoding]::UTF8, 'application/json')
         }
-        elseif ($Body) { $contentType = 'application/json'; $req.Content = New-Object System.Net.Http.StringContent($Body,[System.Text.Encoding]::UTF8,$contentType) }
+        elseif ($body) { $contentType = 'application/json'; $req.Content = New-Object System.Net.Http.StringContent($body,[System.Text.Encoding]::UTF8,$contentType) }
 
         $respTask = $client.SendAsync($req)
         $respTask.Wait()
@@ -8364,23 +9644,37 @@ function Invoke-ApiRequest {
     } catch { return @{ Success = $false; ErrorMessage = $_.Exception.Message } }
 }
 
+<#
+.SYNOPSIS
+    Invoke function.
+.DESCRIPTION
+    Handles logic related to Invoke.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
 function Invoke-RunTests {
-    param([string]$Response, [string]$Tests)
+    param([string]$response, [string]$tests)
     $out = New-Object System.Text.StringBuilder
-    $lines = $Tests -split "`r?`n" | Where-Object { $_ -match '\S' }
+    $lines = $tests -split "`r?`n" | Where-Object { $_ -match '\S' }
     foreach ($l in $lines) {
         if ($l -match '^contains\s+"?(.+)"?$') {
-            if ($Response -like "*$($matches[1])*") { $out.AppendLine("PASS: contains '$($matches[1])'") } else { $out.AppendLine("FAIL: does not contain '$($matches[1])'") }
+            if ($response -like "*$($matches[1])*") { $out.AppendLine("PASS: contains '$($matches[1])'") } else { $out.AppendLine("FAIL: does not contain '$($matches[1])'") }
         }
         elseif ($l -match '^matches\s+/(.+)/$') {
-            if ($Response -match $matches[1]) { $out.AppendLine("PASS: matches /$($matches[1])/") } else { $out.AppendLine("FAIL: does not match /$($matches[1])/") }
+            if ($response -match $matches[1]) { $out.AppendLine("PASS: matches /$($matches[1])/") } else { $out.AppendLine("FAIL: does not match /$($matches[1])/") }
         }
         else { $out.AppendLine("UNKNOWN: $l") }
     }
     return $out.ToString()
 }
 
+#endregion
+#region Logging
 Write-Log "Script finished"
 
-# Create and run the form
+#endregion
+#region GUI Initialization and Layout
 $apiForm = New-APIForm
+#endregion
