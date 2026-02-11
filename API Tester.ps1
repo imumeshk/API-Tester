@@ -4668,6 +4668,82 @@ function Show-CookieJar {
 #region GUI Initialization and Layout
 <#
 .SYNOPSIS
+    Show function.
+.DESCRIPTION
+    Handles logic related to Show.
+.PARAMETER
+    See inline parameters.
+.OUTPUTS
+    Depends on execution context.
+#>
+function Show-AboutWindow {
+    param($parentForm)
+    $aboutForm = New-Object System.Windows.Forms.Form -Property @{
+        Text = "About API Tester"
+        Size = New-Object System.Drawing.Size(400, 350)
+        StartPosition = "CenterParent"
+        FormBorderStyle = "FixedDialog"
+        MaximizeBox = $false
+        MinimizeBox = $false
+        BackColor = $script:Theme.FormBackground
+    }
+
+    $layout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
+        Dock = "Fill"
+        ColumnCount = 1
+        RowCount = 6
+        Padding = [System.Windows.Forms.Padding]::new(10)
+        AutoSize = $true
+    }
+    $layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+
+    $fontBold = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
+    $fontNormal = New-Object System.Drawing.Font("Segoe UI", 10)
+    $fontSmall = New-Object System.Drawing.Font("Segoe UI", 9)
+
+    $iconBox = New-Object System.Windows.Forms.PictureBox -Property @{
+        Size = New-Object System.Drawing.Size(64, 64)
+        SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom
+        Image = [System.Drawing.SystemIcons]::Application.ToBitmap()
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 10)
+        Anchor = "None"
+    }
+
+    $lblName = New-Label -Text "API Tester" -Property @{ AutoSize = $true; Font = $fontBold; TextAlign = "MiddleCenter"; Anchor = "None"; Margin = [System.Windows.Forms.Padding]::new(0,0,0,5) }
+    $lblVersion = New-Label -Text "Version 0.1.0" -Property @{ AutoSize = $true; Font = $fontNormal; TextAlign = "MiddleCenter"; Anchor = "None"; Margin = [System.Windows.Forms.Padding]::new(0,0,0,15) }
+    $lblCredits = New-Label -Text "Crafted with PowerShell`nby Umeshk" -Property @{ AutoSize = $true; Font = $fontSmall; TextAlign = "MiddleCenter"; Anchor = "None"; Margin = [System.Windows.Forms.Padding]::new(0,0,0,15) }
+    
+    $linkGithub = New-Object System.Windows.Forms.LinkLabel -Property @{
+        Text = "https://github.com/imumeshk/API-Tester"
+        AutoSize = $true
+        Font = $fontSmall
+        LinkColor = [System.Drawing.Color]::Blue
+        TextAlign = "MiddleCenter"
+        Anchor = "None"
+        Margin = [System.Windows.Forms.Padding]::new(0,0,0,20)
+    }
+    $linkGithub.Links.Add(0, $linkGithub.Text.Length, "https://github.com/imumeshk/API-Tester") 
+
+    $linkGithub.Add_LinkClicked({
+        param($sender, $e)
+        try { Start-Process $e.Link.LinkData } catch {}
+    })
+
+    $btnClose = New-Button -Text "OK" -Style 'Primary' -Property @{ Width = 100; Height = 35; Anchor = "None" } -OnClick { $aboutForm.Close() }
+
+    $layout.Controls.Add($iconBox, 0, 0)
+    $layout.Controls.Add($lblName, 0, 1)
+    $layout.Controls.Add($lblVersion, 0, 2)
+    $layout.Controls.Add($lblCredits, 0, 3)
+    $layout.Controls.Add($linkGithub, 0, 4)
+    $layout.Controls.Add($btnClose, 0, 5)
+
+    $aboutForm.Controls.Add($layout)
+    $aboutForm.ShowDialog($parentForm)
+}
+
+<#
+.SYNOPSIS
     New function.
 .DESCRIPTION
     Handles logic related to New.
@@ -5891,7 +5967,7 @@ function Invoke-RequestExecution {
     $script:responseDockState = $script:settings.ResponseDockState
 
     $form = New-Object System.Windows.Forms.Form -Property @{
-        Text               = "PowerShell API Tester"
+        Text               = "API Tester v0.1.0"
         Size               = New-Object System.Drawing.Size(1200, 1000)
         StartPosition      = "CenterScreen"
         MinimumSize        = New-Object System.Drawing.Size(900, 800)
@@ -6628,6 +6704,11 @@ function Invoke-RequestExecution {
 
     $monitorMenu.DropDownItems.AddRange(@($monitorManagerItem, $monitorDashboardItem))
     $menuStrip.Items.Add($monitorMenu)
+
+    $helpMenu = New-Object System.Windows.Forms.ToolStripMenuItem("&Help")
+    $aboutMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("About...", $null, { Show-AboutWindow -parentForm $form })
+    $helpMenu.DropDownItems.Add($aboutMenuItem)
+    $menuStrip.Items.Add($helpMenu)
 
     $form.MainMenuStrip = $menuStrip
 
