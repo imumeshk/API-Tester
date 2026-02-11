@@ -5123,6 +5123,27 @@ function Invoke-RequestExecution {
     $bodyRaw = (Substitute-Variables -InputString $script:textBody.Text)
     $testsRaw = $script:textTests.Text
 
+    if ($method -eq 'GET' -and -not [string]::IsNullOrWhiteSpace($bodyRaw)) {
+        $queryParams = @()
+        foreach ($line in ($bodyRaw -split "`r?`n")) {
+            if ($line -match '^\s*([^=]+?)\s*=\s*(.*)') {
+                $key = [uri]::EscapeDataString($matches[1].Trim())
+                $value = [uri]::EscapeDataString($matches[2].Trim())
+                $queryParams += "$key=$value"
+            }
+        }
+
+        if ($queryParams.Count -gt 0) {
+            $queryString = $queryParams -join '&'
+            if ($url -match '\?') {
+                $url += "&$queryString"
+            } else {
+                $url += "?$queryString"
+            }
+            $bodyRaw = ""
+        }
+    }
+
     if ($script:comboBodyType.SelectedItem -eq "GraphQL") {
         $gqlQuery = (Substitute-Variables -InputString $script:txtGqlQuery.Text)
         $gqlVars = (Substitute-Variables -InputString $script:txtGqlVars.Text)
@@ -8398,7 +8419,7 @@ function Invoke-RequestExecution {
     })
     $richTextResponse.ContextMenuStrip = New-CopyContextMenu -ParentControl $richTextResponse
 
-    $tabResponse.Controls.AddRange(@($responseToolsPanel, $responseSearchPanel, $responseExtractPanel, $richTextResponse))
+    $tabResponse.Controls.AddRange(@($richTextResponse, $responseExtractPanel, $responseSearchPanel, $responseToolsPanel))
 
 #endregion
 #region GUI Initialization and Layout
@@ -8509,11 +8530,15 @@ function Invoke-RequestExecution {
             if ($text) { [System.Windows.Forms.Clipboard]::SetText($text) }
         }
     })
+    $jsonContextMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+    $itemExpandAll = $jsonContextMenu.Items.Add("Expand All")
+    $itemExpandAll.Add_Click({ $treeViewJson.ExpandAll() })
+    $itemCollapseAll = $jsonContextMenu.Items.Add("Collapse All")
+    $itemCollapseAll.Add_Click({ $treeViewJson.CollapseAll() })
     $treeViewJson.ContextMenuStrip = $jsonContextMenu
     $treeViewJson.Add_NodeMouseClick({ param($s,$e) if ($e.Button -eq 'Right') { $treeViewJson.SelectedNode = $e.Node } })
     
-    $tabJsonTree.Controls.Add($treeViewJson)
-    $tabJsonTree.Controls.Add($jsonTreeSearchPanel)
+    $tabJsonTree.Controls.AddRange(@($treeViewJson, $jsonTreeSearchPanel))
 
     $tabCode = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Code Snippets" }
     $panelCodeTools = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Top'; AutoSize = $true; AutoSizeMode = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink; Padding = [System.Windows.Forms.Padding]::new(3) }
@@ -8524,7 +8549,7 @@ function Invoke-RequestExecution {
     
     $richTextCode = New-RichTextBox -ReadOnly $true -Property @{ Dock = [System.Windows.Forms.DockStyle]::Fill; BorderStyle = 'None' }
     $richTextCode.ContextMenuStrip = New-CopyContextMenu -ParentControl $richTextCode
-    $tabCode.Controls.AddRange(@($panelCodeTools, $richTextCode))
+    $tabCode.Controls.AddRange(@($richTextCode, $panelCodeTools))
     $tabConsole = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Console" }
     
     $consoleSplit = New-Object System.Windows.Forms.SplitContainer -Property @{ Dock = 'Fill'; Orientation = 'Horizontal'; SplitterDistance = 200 }
@@ -9418,24 +9443,48 @@ function Invoke-RequestExecution {
         $richTextCode.Text = Generate-CodeSnippet -RequestItem $currentUiRequest -Language $script:comboCodeLanguage.SelectedItem
     }
 
-    $script:comboBodyType.Add_SelectedIndexChanged({
-        if ($script:comboBodyType.SelectedItem -eq "multipart/form-data") {
-            $checkIncludeFilename.Visible = $true
-            $checkIncludeContentType.Visible = $true
-            $labelBody.Text = "Body (key=value per line. Press '@' to add a file):"
-            $script:textBody.Visible = $true
-            $script:panelGraphQL.Visible = $false
-        } elseif ($script:comboBodyType.SelectedItem -eq "GraphQL") {
-            $script:textBody.Visible = $false
-            $script:panelGraphQL.Visible = $true
-        } else {
+    $updateBodyControls = {
+        $method = $script:comboMethod.SelectedItem
+        $hasBody = $method -in @('POST', 'PUT', 'PATCH')
+
+        # Enable/disable all body controls based on method
+        $bodyTopPanel.Enabled = $hasBody
+        $panelBodyLabel.Enabled = $hasBody
+        $script:textBody.Enabled = $hasBody
+        $script:panelGraphQL.Enabled = $hasBody
+
+        if (-not $hasBody) {
+            $labelBody.Text = "Body (Not applicable for $method)"
+            # Hide specific controls that are irrelevant
             $checkIncludeFilename.Visible = $false
             $checkIncludeContentType.Visible = $false
-            $labelBody.Text = "Body (raw content):"
-            $script:textBody.Visible = $true
+            $script:textBody.Visible = $true # Keep textbox visible but disabled
             $script:panelGraphQL.Visible = $false
+        } else {
+            # If method supports a body, configure visibility based on body type
+            $bodyType = $script:comboBodyType.SelectedItem
+            if ($bodyType -eq "multipart/form-data") {
+                $checkIncludeFilename.Visible = $true
+                $checkIncludeContentType.Visible = $true
+                $labelBody.Text = "Body (key=value per line. Press '@' to add a file):"
+                $script:textBody.Visible = $true
+                $script:panelGraphQL.Visible = $false
+            } elseif ($bodyType -eq "GraphQL") {
+                $checkIncludeFilename.Visible = $false
+                $checkIncludeContentType.Visible = $false
+                $script:textBody.Visible = $false
+                $script:panelGraphQL.Visible = $true
+            } else { # raw, json, xml, etc.
+                $checkIncludeFilename.Visible = $false
+                $checkIncludeContentType.Visible = $false
+                $labelBody.Text = "Body (raw content):"
+                $script:textBody.Visible = $true
+                $script:panelGraphQL.Visible = $false
+            }
         }
-    })
+    }
+    $script:comboBodyType.Add_SelectedIndexChanged($updateBodyControls)
+    $script:comboMethod.Add_SelectedIndexChanged($updateBodyControls)
 
     if ($script:settings.EnableHistory) {
         Load-History
@@ -9512,6 +9561,7 @@ function Invoke-RequestExecution {
     }
     
     Update-Layout
+    & $updateBodyControls
 
     $form.Add_Shown({
         Update-Layout 
