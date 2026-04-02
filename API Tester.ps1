@@ -67,6 +67,7 @@ try {
 #region GUI Initialization and Layout
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
+    Add-Type -AssemblyName Microsoft.VisualBasic
     Add-Type -AssemblyName System.Windows.Forms.DataVisualization -ErrorAction SilentlyContinue
 
     if ([Environment]::OSVersion.Version.Major -ge 6) {
@@ -1660,21 +1661,17 @@ function Show-EnvironmentEditor {
 
     $editorTabControl.TabPages.AddRange(@($tabHeaders, $tabAuth, $tabVars))
 
-    $panelBottom = New-Object System.Windows.Forms.Panel -Property @{ Dock = 'Bottom'; Height = 40; Padding = [System.Windows.Forms.Padding]::new(5) }
-    $btnSave = New-Button -Text "Save" -Style 'Primary' -Property @{ Dock = 'Right'; Width = 100 } -OnClick {
+    $panelBottom = New-Object System.Windows.Forms.Panel -Property @{ Dock = 'Bottom'; Height = 55; BackColor = $script:Theme.FormBackground }
+    
+    $btnSave   = New-Button -Text "Save"   -Style 'Primary'   -Property @{ Width = 105; Height = 35; Anchor = 'Right' } -OnClick {
         $environmentData.Url = $textUrl.Text
         $environmentData.Headers = $textHeaders.Text
-        
         $environmentData.Authentication = & $authResult.GetAuthData
-        
         $newVars = @{}
         $textVars.Lines | ForEach-Object {
-            if ($_ -match '^\s*([^=]+?)\s*=(.*)$') {
-                $newVars[$matches[1].Trim()] = $matches[2].Trim()
-            }
+            if ($_ -match '^\s*([^=]+?)\s*=(.*)$') { $newVars[$matches[1].Trim()] = $matches[2].Trim() }
         }
         $environmentData.Variables = $newVars
-
 #endregion
 #region Logging
         $editorForm.DialogResult = [System.Windows.Forms.DialogResult]::OK
@@ -1682,7 +1679,7 @@ function Show-EnvironmentEditor {
 #region GUI Initialization and Layout
         $editorForm.Close()
     }
-    $btnCancel = New-Button -Text "Cancel" -Style 'Secondary' -Property @{ Dock = 'Right'; Width = 100 } -OnClick {
+    $btnCancel = New-Button -Text "Cancel" -Style 'Secondary' -Property @{ Width = 105; Height = 35; Anchor = 'Right' } -OnClick {
 #endregion
 #region Logging
         $editorForm.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
@@ -1690,9 +1687,28 @@ function Show-EnvironmentEditor {
 #region GUI Initialization and Layout
         $editorForm.Close()
     }
-    $panelBottom.Controls.AddRange(@($btnCancel, $btnSave)) 
 
-    $editorForm.Controls.AddRange(@($editorTabControl, $panelUrl, $panelBottom))
+    # Position buttons on the right side; recalculate on every resize
+    $positionBottomButtons = {
+        $btnSave.Left   = $panelBottom.ClientSize.Width - $btnSave.Width - 5
+        $btnSave.Top    = ($panelBottom.ClientSize.Height - $btnSave.Height) / 2
+        $btnCancel.Left = $btnSave.Left - $btnCancel.Width - 8
+        $btnCancel.Top  = $btnSave.Top
+    }
+    $panelBottom.Add_Resize($positionBottomButtons)
+    $editorForm.Add_Shown($positionBottomButtons)
+    $panelBottom.Controls.AddRange(@($btnCancel, $btnSave))
+
+    # WinForms Dock layout: controls at HIGHER index (added LATER) are processed FIRST.
+    # Dock=Top/Bottom panels must be at LOWER index (added first) so they're processed LAST
+    # and claim their edge space after Fill has been tentatively placed.
+    # Actually the correct pattern: add Fill control FIRST, then Dock=Top, then Dock=Bottom.
+    # Higher index → processed first. We want Bottom/Top processed before Fill.
+    # So: add editorTabControl(Fill) first (index 0, processed last → gets residual space)
+    #     add panelUrl(Top) and panelBottom(Bottom) after (higher index → processed first → reserve edges)
+    $editorForm.Controls.Add($editorTabControl)    # index 0, Dock=Fill  — processed LAST
+    $editorForm.Controls.Add($panelUrl)             # index 1, Dock=Top   — processed SECOND  
+    $editorForm.Controls.Add($panelBottom)          # index 2, Dock=Bottom — processed FIRST
 #endregion
 #region Logging
     return $editorForm.ShowDialog($parentForm)
@@ -2357,7 +2373,7 @@ function Show-WebSocketClient {
     param($parentForm)
     $wsForm = New-Object System.Windows.Forms.Form -Property @{ Text="WebSocket Client"; Size=New-Object System.Drawing.Size(750, 600); StartPosition="CenterParent"; BackColor = $script:Theme.FormBackground }
     
-    $topPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Top'; AutoSize=$true; Padding=[System.Windows.Forms.Padding]::new(8); WrapContents=$false }
+    $topPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Top'; Height=48; Padding=[System.Windows.Forms.Padding]::new(5,5,5,5); WrapContents=$false }
     $lblUrl = New-Label -Text "URL:" -Property @{ AutoSize=$true; TextAlign='MiddleLeft'; Margin=[System.Windows.Forms.Padding]::new(0,6,0,0) }
     $txtUrl = New-TextBox -Property @{ Width=320; Text="wss://echo.websocket.org" }
     $btnConnect = New-Button -Text "Connect" -Style 'Primary' -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(6,3,3,3) }
@@ -2418,10 +2434,13 @@ function Show-WebSocketClient {
     
 #endregion
 #region GUI Initialization and Layout
-    $bottomPanel = New-Object System.Windows.Forms.Panel -Property @{ Dock='Bottom'; Height=40; Padding=[System.Windows.Forms.Padding]::new(5) }
+    $bottomPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Bottom'; Height=45; ColumnCount=2; Padding=[System.Windows.Forms.Padding]::new(5) }
+    $bottomPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+    $bottomPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
     $txtMsg = New-TextBox -Property @{ Dock='Fill' }
-    $btnSend = New-Button -Text "Send" -Style 'Primary' -Property @{ Dock='Right'; Width=90; Enabled=$false }
-    $bottomPanel.Controls.AddRange(@($btnSend, $txtMsg))
+    $btnSend = New-Button -Text "Send" -Style 'Primary' -Property @{ Dock='Right'; Width=90; Enabled=$false; Margin=[System.Windows.Forms.Padding]::new(5,0,0,0) }
+    $bottomPanel.Controls.Add($txtMsg, 0, 0)
+    $bottomPanel.Controls.Add($btnSend, 1, 0)
 
     $ws = New-Object System.Net.WebSockets.ClientWebSocket
     $buffer = New-Object byte[] 4096
@@ -3487,12 +3506,10 @@ function Show-MonitorManager {
     }
     Refresh-List
 
-    $panelBtn = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Bottom'; AutoSize = $true; ColumnCount = 3; Padding = [System.Windows.Forms.Padding]::new(0, 5, 0, 5) }
-    $panelBtn.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50))) | Out-Null
-    $panelBtn.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
-    $panelBtn.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50))) | Out-Null
+    $panelBtn = New-Object System.Windows.Forms.Panel -Property @{ Dock = 'Bottom'; Height = 58; Padding = [System.Windows.Forms.Padding]::new(5) }
+    $buttonsFlow = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Fill'; FlowDirection = 'LeftToRight'; WrapContents = $false; Padding = [System.Windows.Forms.Padding]::new(0) }
     
-    $btnAdd = New-Button -Text "Add Monitor..." -Property @{ Width = 130; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnAdd = New-Button -Text "Add Monitor..." -Property @{ Width = 155; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         $newMonitor = @{
             Id = [Guid]::NewGuid().ToString()
             Name = "New Monitor"
@@ -3630,11 +3647,10 @@ function Show-MonitorManager {
 
 #endregion
 #region GUI Initialization and Layout
-    $buttonsFlow = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ AutoSize = $true; FlowDirection = 'LeftToRight'; WrapContents = $false; Margin = [System.Windows.Forms.Padding]::new(0); Padding = [System.Windows.Forms.Padding]::new(5,0,5,0) }
 #endregion
 #region Logging
     $buttonsFlow.Controls.AddRange(@($btnCharts, $btnOpenLog, $btnAdd, $btnEdit, $btnToggle, $btnDelete, $btnEmailConfig, $btnClearLog, $btnArchiveLog))
-    $panelBtn.Controls.Add($buttonsFlow, 1, 0)
+    $panelBtn.Controls.Add($buttonsFlow)
 #endregion
 #region GUI Initialization and Layout
     $monitorForm.Controls.AddRange(@($listMonitors, $panelBtn))
@@ -4474,19 +4490,20 @@ function Show-ProxySettings {
     $comboMode.SelectedItem = if ($script:settings.ProxyMode) { $script:settings.ProxyMode } else { "System" }
 
     $grpCustom = New-Object System.Windows.Forms.GroupBox -Property @{ Text="Custom Proxy Settings"; Width=450; Height=220; Enabled=($comboMode.SelectedItem -eq "Custom") }
-    $customLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; Padding=[System.Windows.Forms.Padding]::new(10) }
-    $customLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
-    $customLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
+    $customLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=4; Padding=[System.Windows.Forms.Padding]::new(10) }
+    $customLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
+    $customLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+    for ($i = 0; $i -lt 4; $i++) { $customLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null }
 
     $txtAddr = New-TextBox -Property @{ Text=$script:settings.ProxyAddress; Dock='Fill' }
     $txtPort = New-TextBox -Property @{ Text=$script:settings.ProxyPort; Width=60 }
     $txtUser = New-TextBox -Property @{ Text=$script:settings.ProxyUser; Dock='Fill' }
     $txtPass = New-TextBox -Property @{ Text=$script:settings.ProxyPass; Dock='Fill'; UseSystemPasswordChar=$true }
 
-    $customLayout.Controls.Add((New-Label -Text "Address:" -Property @{AutoSize=$true; Anchor='Left'}), 0, 0); $customLayout.Controls.Add($txtAddr, 1, 0)
-    $customLayout.Controls.Add((New-Label -Text "Port:" -Property @{AutoSize=$true; Anchor='Left'}), 0, 1); $customLayout.Controls.Add($txtPort, 1, 1)
-    $customLayout.Controls.Add((New-Label -Text "Username:" -Property @{AutoSize=$true; Anchor='Left'}), 0, 2); $customLayout.Controls.Add($txtUser, 1, 2)
-    $customLayout.Controls.Add((New-Label -Text "Password:" -Property @{AutoSize=$true; Anchor='Left'}), 0, 3); $customLayout.Controls.Add($txtPass, 1, 3)
+    $customLayout.Controls.Add((New-Label -Text "Address:"  -Property @{ AutoSize=$true; TextAlign='MiddleLeft'; Margin=[System.Windows.Forms.Padding]::new(0,3,10,3) }), 0, 0); $customLayout.Controls.Add($txtAddr, 1, 0)
+    $customLayout.Controls.Add((New-Label -Text "Port:"     -Property @{ AutoSize=$true; TextAlign='MiddleLeft'; Margin=[System.Windows.Forms.Padding]::new(0,3,10,3) }), 0, 1); $customLayout.Controls.Add($txtPort, 1, 1)
+    $customLayout.Controls.Add((New-Label -Text "Username:" -Property @{ AutoSize=$true; TextAlign='MiddleLeft'; Margin=[System.Windows.Forms.Padding]::new(0,3,10,3) }), 0, 2); $customLayout.Controls.Add($txtUser, 1, 2)
+    $customLayout.Controls.Add((New-Label -Text "Password:" -Property @{ AutoSize=$true; TextAlign='MiddleLeft'; Margin=[System.Windows.Forms.Padding]::new(0,3,10,3) }), 0, 3); $customLayout.Controls.Add($txtPass, 1, 3)
     $grpCustom.Controls.Add($customLayout)
 
     $comboMode.Add_SelectedIndexChanged({ $grpCustom.Enabled = ($comboMode.SelectedItem -eq "Custom") })
@@ -4558,13 +4575,13 @@ function Show-CookieJar {
 #endregion
 #region GUI Initialization and Layout
     param($parentForm)
-    $form = New-Object System.Windows.Forms.Form -Property @{ Text="Cookie Jar"; Size=New-Object System.Drawing.Size(600, 400); StartPosition="CenterParent"; BackColor=$script:Theme.FormBackground }
+    $form = New-Object System.Windows.Forms.Form -Property @{ Text="Cookie Jar"; Size=New-Object System.Drawing.Size(650, 450); MinimumSize=New-Object System.Drawing.Size(500,350); StartPosition="CenterParent"; BackColor=$script:Theme.FormBackground }
     
-    $grid = New-Object System.Windows.Forms.DataGridView -Property @{ Dock='Fill'; ReadOnly=$true; AllowUserToAddRows=$false; RowHeadersVisible=$false; AutoSizeColumnsMode='Fill'; BackgroundColor='White' }
-    $grid.Columns.Add("Domain", "Domain") | Out-Null
-    $grid.Columns.Add("Name", "Name") | Out-Null
-    $grid.Columns.Add("Value", "Value") | Out-Null
-    $grid.Columns.Add("Path", "Path") | Out-Null
+    $grid = New-Object System.Windows.Forms.DataGridView -Property @{ Dock='Fill'; ReadOnly=$true; AllowUserToAddRows=$false; RowHeadersVisible=$false; AutoSizeColumnsMode='Fill'; BackgroundColor='White'; BorderStyle='None'; ColumnHeadersHeightSizeMode='DisableResizing'; ColumnHeadersHeight=30 }
+    $grid.Columns.Add("Domain",  "Domain")  | Out-Null
+    $grid.Columns.Add("Name",    "Name")    | Out-Null
+    $grid.Columns.Add("Value",   "Value")   | Out-Null
+    $grid.Columns.Add("Path",    "Path")    | Out-Null
     $grid.Columns.Add("Expires", "Expires") | Out-Null
 
 <#
@@ -4587,15 +4604,14 @@ function Show-CookieJar {
     }
     Refresh-Grid
 
-    $panelBtn = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Bottom'; AutoSize=$true; FlowDirection='RightToLeft'; Padding=[System.Windows.Forms.Padding]::new(5) }
+    $panelBtn = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Bottom'; Height=52; FlowDirection='LeftToRight'; WrapContents=$false; Padding=[System.Windows.Forms.Padding]::new(8,8,8,8) }
     $btnClose = New-Button -Text "Close" -Style 'Secondary' -Property @{ Width=80; Height=30 } -OnClick { $form.Close() }
     $btnClear = New-Button -Text "Clear All" -Style 'Danger' -Property @{ Width=100; Height=30; Margin=[System.Windows.Forms.Padding]::new(0,0,5,0) } -OnClick {
         if ($script:cookieJar) { $script:cookieJar.Clear() }
         Refresh-Grid
     }
-    $panelBtn.Controls.AddRange(@($btnClose, $btnClear))
 
-    $btnExport = New-Button -Text "Export..." -Style 'Secondary' -Property @{ Width=80; Height=30; Margin=[System.Windows.Forms.Padding]::new(0,0,5,0) } -OnClick {
+    $btnExport = New-Button -Text "Export..." -Style 'Secondary' -Property @{ Width=100; Height=30; Margin=[System.Windows.Forms.Padding]::new(0,0,5,0) } -OnClick {
 #endregion
 #region Logging
         $sfd = New-Object System.Windows.Forms.SaveFileDialog -Property @{ Filter="JSON Files (*.json)|*.json"; FileName="cookies.json" }
@@ -4615,7 +4631,7 @@ function Show-CookieJar {
         }
     }
 
-    $btnImport = New-Button -Text "Import..." -Style 'Secondary' -Property @{ Width=80; Height=30; Margin=[System.Windows.Forms.Padding]::new(0,0,5,0) } -OnClick {
+    $btnImport = New-Button -Text "Import..." -Style 'Secondary' -Property @{ Width=100; Height=30; Margin=[System.Windows.Forms.Padding]::new(0,0,5,0) } -OnClick {
 #endregion
 #region Logging
         $ofd = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter="JSON Files (*.json)|*.json" }
@@ -4656,9 +4672,9 @@ function Show-CookieJar {
         }
     }
 
-    $panelBtn.Controls.AddRange(@($btnClose, $btnClear, $btnExport, $btnImport))
+    $panelBtn.Controls.AddRange(@($btnImport, $btnExport, $btnClear, $btnClose))
 
-    $form.Controls.AddRange(@($grid, $panelBtn))
+    $form.Controls.AddRange(@($panelBtn, $grid))
 #endregion
 #region Logging
     $form.ShowDialog($parentForm)
@@ -4878,8 +4894,13 @@ function New-APIForm {
                                     $contentType -like 'text/html*'
 
                     $script:lastResponseContentType = $contentType
-                    $script:btnExportResponse.Enabled = $isRenderable
-                    $script:btnPrettifyResponse.Enabled = $isRenderable
+                    $script:btnExportResponse.Enabled      = $isRenderable
+                    $script:btnPrettifyResponse.Enabled    = $isRenderable
+                    # Enable all response toolbar buttons now that we have a response
+                    $script:btnFind.Enabled                = $true
+                    $script:btnExtractVariable.Enabled     = $true
+                    $script:btnGoToLine.Enabled            = $true
+                    $script:btnToggleWordWrap.Enabled      = $true
 
                     $finalSavePath = $null
 
@@ -7917,7 +7938,7 @@ function Invoke-RequestExecution {
         Padding = [System.Windows.Forms.Padding]::new(2, 2, 2, 2)
         AutoSize = $true 
         AutoSizeMode = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink
-        WrapContents = $false
+        WrapContents = $true
     }
 
     $script:btnPrettifyResponse = New-Button -Text "Prettify" -Property @{ 
@@ -8003,6 +8024,7 @@ function Invoke-RequestExecution {
     $script:btnGoToLine = New-Button -Text "Go To" -Property @{ 
         Width = 100
         Height = 35
+        Enabled = $false
 #endregion
 #region GUI Initialization and Layout
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) 
@@ -8021,6 +8043,7 @@ function Invoke-RequestExecution {
     $script:btnToggleWordWrap = New-Button -Text "Wrap" -Property @{ 
         Width = 100
         Height = 35
+        Enabled = $false
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) 
     } -OnClick {
         $richTextResponse.WordWrap = -not $richTextResponse.WordWrap
@@ -8030,6 +8053,7 @@ function Invoke-RequestExecution {
     $script:btnFind = New-Button -Text "Find" -Property @{ 
         Width = 100
         Height = 35
+        Enabled = $false
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0)
     } -OnClick {
         $responseSearchPanel.Visible = -not $responseSearchPanel.Visible
@@ -8040,6 +8064,7 @@ function Invoke-RequestExecution {
     $script:btnExtractVariable = New-Button -Text "Extract" -Property @{
         Width = 100
         Height = 35
+        Enabled = $false
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0)
     } -OnClick {
         $responseExtractPanel.Visible = -not $responseExtractPanel.Visible
@@ -8051,19 +8076,32 @@ function Invoke-RequestExecution {
 
     $responseToolsPanel.Controls.AddRange(@($script:btnPrettifyResponse, $script:btnExportResponse, $script:btnToggleWordWrap, $script:btnGoToLine, $script:btnFind, $script:btnExtractVariable))
     
-    $responseSearchPanel = New-Object System.Windows.Forms.Panel -Property @{ 
-        Dock = 'Top'
-        Height = 45
-        Padding = [System.Windows.Forms.Padding]::new(5, 5, 5, 5)
-        Visible = $false
-        BackColor = $script:Theme.GroupBackground
+    # Use a FlowLayoutPanel so the TextBox and all buttons share the same explicit height
+    $responseSearchPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ 
+        Dock          = 'Top'
+        Height        = 46
+        Padding       = [System.Windows.Forms.Padding]::new(5, 5, 5, 5)
+        WrapContents  = $false
+        FlowDirection = 'LeftToRight'
+        Visible       = $false
+        BackColor     = $script:Theme.GroupBackground
     }
 
+    # In a FlowLayoutPanel, the textbox must have an explicit Width; it won't Dock='Fill'.
+    # We calculate width dynamically when the panel is shown.
     $script:textSearchResponse = New-TextBox -Property @{ 
-        Dock = 'Fill'
-        Text = "Find..." 
+        Width     = 350
+        Height    = 30
+        Text      = "Find..." 
         ForeColor = [System.Drawing.Color]::Gray 
     }
+    $responseSearchPanel.Add_Resize({
+        # Keep the textbox filling whatever space the toggle/nav/close buttons don't use
+        $usedW = ($responseSearchPanel.Controls | Where-Object { $_ -ne $script:textSearchResponse } | Measure-Object -Property Width -Sum).Sum
+        $usedW += ($responseSearchPanel.Controls.Count - 1) * 5   # approximate margins
+        $available = $responseSearchPanel.ClientSize.Width - $responseSearchPanel.Padding.Horizontal - $usedW - 10
+        if ($available -gt 50) { $script:textSearchResponse.Width = $available }
+    })
     
     $script:textSearchResponse.Add_Enter({ 
         if ($script:textSearchResponse.Text -eq "Find...") { 
@@ -8081,50 +8119,49 @@ function Invoke-RequestExecution {
     })
 
     $script:btnSearchPrev = New-Button -Text "<" -Property @{ 
-        Dock = 'Right'
-        Width = 35 
+        Width     = 30
+        Height    = 30
         FlatStyle = 'Flat'
         TextAlign = 'MiddleCenter'
-        Margin = [System.Windows.Forms.Padding]::new(5, 0, 0, 0) 
+        Margin    = [System.Windows.Forms.Padding]::new(3, 0, 0, 0) 
     }
     $toolTip.SetToolTip($script:btnSearchPrev, "Find Previous")
     $script:btnSearchNext = New-Button -Text ">" -Property @{ 
-        Dock = 'Right'
-        Width = 35 
+        Width     = 30
+        Height    = 30
         FlatStyle = 'Flat'
         TextAlign = 'MiddleCenter'
-        Margin = [System.Windows.Forms.Padding]::new(2, 0, 0, 0) 
+        Margin    = [System.Windows.Forms.Padding]::new(2, 0, 0, 0) 
     }
     $toolTip.SetToolTip($script:btnSearchNext, "Find Next")
     $script:checkSearchMatchCase = New-Object System.Windows.Forms.CheckBox -Property @{ 
-        Text = "Aa"
-        Dock = 'Right'
+        Text      = "Aa"
         Appearance = 'Button'
-        AutoSize = $false 
-        Width = 35 
+        AutoSize  = $false 
+        Width     = 32
+        Height    = 30
         FlatStyle = 'Flat'
         TextAlign = 'MiddleCenter'
-        Margin = [System.Windows.Forms.Padding]::new(5, 0, 0, 0)
+        Margin    = [System.Windows.Forms.Padding]::new(3, 0, 0, 0)
     }
     $toolTip.SetToolTip($script:checkSearchMatchCase, "Match Case")
 
     $script:checkSearchWholeWord = New-Object System.Windows.Forms.CheckBox -Property @{ 
-        Text = "WW"
-        Dock = 'Right'
+        Text      = "WW"
         Appearance = 'Button'
-        AutoSize = $false 
-        Width = 35 
+        AutoSize  = $false 
+        Width     = 32
+        Height    = 30
         FlatStyle = 'Flat'
         TextAlign = 'MiddleCenter'
-        Margin = [System.Windows.Forms.Padding]::new(2, 0, 0, 0)
+        Margin    = [System.Windows.Forms.Padding]::new(2, 0, 0, 0)
     }
     $toolTip.SetToolTip($script:checkSearchWholeWord, "Match Whole Word Only")
 
     $script:labelSearchStatus = New-Label -Text "" -Property @{ 
-        Dock = 'Right'
-        AutoSize = $true 
+        AutoSize  = $true 
         TextAlign = 'MiddleLeft'
-        Margin = [System.Windows.Forms.Padding]::new(10, 0, 10, 0)
+        Margin    = [System.Windows.Forms.Padding]::new(8, 5, 8, 0)
     }
 
 <#
@@ -8260,18 +8297,27 @@ function Invoke-RequestExecution {
     $script:btnSearchPrev.Add_Click({ & $findNextPrev -1 })
 
     $script:btnCloseSearch = New-Button -Text "X" -Property @{ 
-        Dock = 'Right'
-        Width = 35 
+        Width     = 30
+        Height    = 30
         FlatStyle = [System.Windows.Forms.FlatStyle]::Flat 
         ForeColor = [System.Drawing.Color]::Red 
-        Margin = [System.Windows.Forms.Padding]::new(5, 0, 0, 0)
+        Margin    = [System.Windows.Forms.Padding]::new(3, 0, 0, 0)
     } -OnClick {
         $responseSearchPanel.Visible = $false
         Apply-ResponseSearchHighlights -Matches @() -CurrentIndex -1
     }
     $toolTip.SetToolTip($script:btnCloseSearch, "Close Find Bar")
 
-    $responseSearchPanel.Controls.AddRange(@($script:textSearchResponse, $script:labelSearchStatus, $script:checkSearchWholeWord, $script:checkSearchMatchCase, $script:btnSearchNext, $script:btnSearchPrev, $script:btnCloseSearch))
+    # Order: textbox first (fills remaining space), then action controls left-to-right
+    $responseSearchPanel.Controls.AddRange(@(
+        $script:textSearchResponse,
+        $script:labelSearchStatus,
+        $script:checkSearchWholeWord,
+        $script:checkSearchMatchCase,
+        $script:btnSearchNext,
+        $script:btnSearchPrev,
+        $script:btnCloseSearch
+    ))
 
     $responseExtractPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{
         Dock = 'Top'
@@ -9526,7 +9572,7 @@ function Invoke-RequestExecution {
 
     $updateBodyControls = {
         $method = $script:comboMethod.SelectedItem
-        $hasBody = $method -in @('POST', 'PUT', 'PATCH')
+        $hasBody = $method -in @('POST', 'PUT', 'PATCH', 'GET')
 
         # Enable/disable all body controls based on method
         $bodyTopPanel.Enabled = $hasBody
