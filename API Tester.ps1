@@ -88,8 +88,6 @@ catch {
     Write-Host "Failed to load assemblies: $($_.Exception.Message)"
     exit
 }
-} catch {}
-
 #endregion
 
 #region UI Theme & Icons
@@ -4396,7 +4394,14 @@ function Invoke-RequestExecution {
         $method = "POST" # GraphQL is typically POST
     }
 
-    $outputFormat = $script:textOutputFormat.Text
+    $outputFormat = if ($script:textOutputFormat) { [string]$script:textOutputFormat.Text } else { "" }
+    $outputFormat = $outputFormat.Trim()
+    $outputFormatKey = "outputFormat"
+    $outputFormatValue = $outputFormat
+    if ($outputFormat -match '^\s*([^=]+?)\s*=\s*(.+)\s*$') {
+        $outputFormatKey = $matches[1].Trim()
+        $outputFormatValue = $matches[2].Trim()
+    }
     if ($selectedBodyType -ne "GraphQL") { 
         $bodyType = $selectedBodyType
     }
@@ -4404,7 +4409,7 @@ function Invoke-RequestExecution {
     if ($script:settings.AutoSaveToFile) {
         $outputFile = $script:settings.AutoSavePath # Use the path from settings
     } else {
-        $outputFile = $script:activeRequestTab.TextOutputFile.Text # Use the path from the visible text box
+        $outputFile = $script:textOutputFile.Text
     }
     
     $includeFilename = $checkIncludeFilename.Checked
@@ -4601,7 +4606,7 @@ function Invoke-RequestExecution {
                 Write-Log "Adding form value: '$key' = '$value'"
             }
         }
-        if ($outputFormat) { $script:formBody["outputFormat"] = $outputFormat }
+        if ($outputFormatValue) { $script:formBody[$outputFormatKey] = $outputFormatValue }
     }
 
     # Generate Code Snippet
@@ -5928,10 +5933,11 @@ function Invoke-RequestExecution {
         TextAlign = 'MiddleLeft'
     }
     $script:textOutputFormat = New-TextBox -Multiline $false -Property @{
-        Name     = 'textOutputFormat'
-        Dock     = 'Fill'
+        Name = 'textOutputFormat'
+        Dock = 'Fill'
     }
-    $panelOutputFormat.Controls.AddRange(@($labelOutputFormat, $script:textOutputFormat))
+    $toolTip.SetToolTip($script:textOutputFormat, "Specify a form field such as outputFormat=TrackChanges.")
+    $panelOutputFormat.Controls.AddRange(@($script:textOutputFormat, $labelOutputFormat))
 
     $panelOutputFile = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
         Dock = 'Top'
@@ -7971,7 +7977,7 @@ function Invoke-RequestExecution {
                         Headers   = $script:textHeaders.Text
                         Body      = $script:textBody.Text
                         BodyType  = $script:comboBodyType.SelectedItem
-                        OutputFormat = $script:textOutputFormat.Text
+                        OutputFormat = if ($script:textOutputFormat) { [string]$script:textOutputFormat.Text } else { "" }
                         Tests     = $script:textTests.Text                        
                         PreRequestScript = $script:textPreRequest.Text
                         Authentication = (& $script:authPanel.GetAuthData)
@@ -8387,7 +8393,7 @@ function Invoke-RequestExecution {
         $script:textBody.Text = $selectedHistoryItem.Body
 
         if ($selectedHistoryItem.PSObject.Properties.Name -contains 'OutputFormat') {
-            $script:textOutputFormat.Text = $selectedHistoryItem.OutputFormat
+            $script:textOutputFormat.Text = [string]$selectedHistoryItem.OutputFormat
         } else {
             $script:textOutputFormat.Text = ""
         }
@@ -8572,7 +8578,24 @@ function Invoke-RequestExecution {
     $form.Add_Shown({
         # A second call to Update-Layout after the form is shown ensures all control
         # dimensions are correctly calculated for the final layout.
-        Update-Layout # Initial layout update
+        Update-Layout
+
+        # Make launch more reliable when PowerShell/WinForms leaves the window behind
+        # other apps or in a minimized/invisible state.
+        try { $form.ShowInTaskbar = $true } catch {}
+        try { $form.Opacity = 1 } catch {}
+        try {
+            if ($form.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
+                $form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+            }
+        } catch {}
+        try { $form.BringToFront() } catch {}
+        try {
+            $form.TopMost = $true
+            $form.TopMost = $false
+        } catch {}
+        try { $form.Activate() } catch {}
+        Write-Log "Main form shown. WindowState=$($form.WindowState); Visible=$($form.Visible)"
     })
 
     # Add global keyboard shortcuts
@@ -8593,16 +8616,6 @@ function Invoke-RequestExecution {
         Write-Log "Main form closing event triggered."
         # Set flag to indicate main form is closing
         $script:isMainFormClosing = $true
-        foreach ($openForm in @([System.Windows.Forms.Application]::OpenForms)) {
-            if ($openForm) {
-                try { $openForm.ShowInTaskbar = $false } catch {}
-                try { $openForm.Opacity = 0 } catch {}
-                if ($openForm -ne $sender) {
-                    try { $openForm.Hide() } catch {}
-                }
-            }
-        }
-        $form.Hide()
         if ($notifyIcon) {
             try { $notifyIcon.Visible = $false } catch {}
         }
@@ -8617,22 +8630,19 @@ function Invoke-RequestExecution {
             try { $monitorTimer.Dispose() } catch {}
             $monitorTimer = $null
         }
-        # Close undocked forms first so their FormClosing handlers can observe the shutdown flag
-        # without triggering a re-dock/layout cycle.
+        # Hide undocked forms so they do not briefly reactivate the owner while the main form
+        # is closing. They will be disposed after shutdown completes.
         if ($script:historyForm -and -not $script:historyForm.IsDisposed) {
-            Write-Log "Closing undocked history form."
-            try { $script:historyForm.Close() } catch {}
+            Write-Log "Hiding undocked history form during shutdown."
+            try { $script:historyForm.Hide() } catch {}
         }
         if ($script:responseForm -and -not $script:responseForm.IsDisposed) {
-            Write-Log "Closing undocked response form."
-            try { $script:responseForm.Close() } catch {}
+            Write-Log "Hiding undocked response form during shutdown."
+            try { $script:responseForm.Hide() } catch {}
         }
         foreach ($ownedForm in @($form.OwnedForms)) {
             if ($ownedForm -and -not $ownedForm.IsDisposed) {
-                try { $ownedForm.ShowInTaskbar = $false } catch {}
-                try { $ownedForm.Opacity = 0 } catch {}
                 try { $ownedForm.Hide() } catch {}
-                try { $ownedForm.Close() } catch {}
             }
         }
         # Cleanup RunspacePool
@@ -8662,11 +8672,8 @@ function Invoke-RequestExecution {
             try { $script:responseForm.Dispose() } catch {}
             $script:responseForm = $null
         }
-        [System.Windows.Forms.Application]::ExitThread()
     })
-    $form.Add_Shown({$form.Activate()}) # Activate the form when shown
-    [System.Windows.Forms.Application]::Run($form) # Run the Windows Forms application
-    $form.ShowDialog() | Out-Null # Use ShowDialog instead of Application::Run for better PowerShell stability
+    $form.ShowDialog() | Out-Null
     # Perform cleanup after the main form is closed.
     if ($script:currentPowerShell) { $script:currentPowerShell.Dispose() }
     foreach ($mId in $script:monitorJobs.Keys) {
