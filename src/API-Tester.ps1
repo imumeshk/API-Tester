@@ -1,9 +1,9 @@
-﻿#region Initialization
+#region Initialization
 
 # --- App Metadata ---
 $script:AppVersion     = "2.0.0"
 $script:AppGitHubRepo  = "imumeshk/API-Tester"
-$script:AppGitHubAsset = "API Tester V2.ps1"   # Name of the .ps1 asset attached to GitHub Releases
+$script:AppGitHubAsset = "API-Tester.ps1"   # Name of the .ps1 asset attached to GitHub Releases
 
 # Determine the script's root directory to locate configuration and log files.
 # This approach works for both standard execution and in the PowerShell ISE.
