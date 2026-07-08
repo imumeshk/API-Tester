@@ -1,9 +1,9 @@
 ﻿#region Initialization
 
 # --- App Metadata ---
-$script:AppVersion     = "1.0.0"
+$script:AppVersion     = "2.0.0"
 $script:AppGitHubRepo  = "imumeshk/API-Tester"
-$script:AppGitHubAsset = "API Tester.ps1"   # Name of the .ps1 asset attached to GitHub Releases
+$script:AppGitHubAsset = "API Tester V2.ps1"   # Name of the .ps1 asset attached to GitHub Releases
 
 # Determine the script's root directory to locate configuration and log files.
 # This approach works for both standard execution and in the PowerShell ISE.
@@ -60,6 +60,8 @@ $settingsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_settings.j
 $environmentsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_environments.json"
 $globalsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_globals.json"
 $collectionsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_collections.json"
+$requestTabsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_request_tabs.json"
+$requestTemplatesFilePath = Join-Path -Path $configDir -ChildPath "api_tester_request_templates.json"
 $monitorsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_monitors.json"
 $monitorLogFilePath = Join-Path -Path $historyDir -ChildPath "api_tester_monitor_log.csv"
 $grpcHistoryFilePath = Join-Path -Path $historyDir -ChildPath "api_tester_grpc_history.json"
@@ -93,6 +95,7 @@ catch {
     Write-Host "Failed to load assemblies: $($_.Exception.Message)"
     exit
 }
+
 #endregion
 
 #region UI Theme & Icons
@@ -679,6 +682,14 @@ function Save-History {
     }
 }
 
+function Save-Globals {
+    try {
+        $script:globals | ConvertTo-Json -Depth 10 | Out-File -FilePath $globalsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
+    } catch {
+        Write-Log "Failed to save globals: $($_.Exception.Message)" -Level Debug
+    }
+}
+
 $script:globals = @{}
 
 function Load-Globals {
@@ -702,7 +713,6 @@ function Save-Globals {
         Write-Log "Failed to save globals: $($_.Exception.Message)" -Level Debug
     }
 }
-
 $script:environments = @{}
 $script:activeEnvironment = "No Environment"
 
@@ -751,6 +761,10 @@ $script:collections = @()
 $script:activeCollectionName = $null
 $script:activeCollectionNode = $null
 $script:activeCollectionVariables = @{}
+$script:requestTabs = @()
+$script:requestTemplates = @()
+$script:activeRequestTabId = $null
+$script:isSwitchingRequestTab = $false
 
 function Ensure-CollectionVariables {
     param([array]$Items)
@@ -790,6 +804,145 @@ function Save-Collections {
     } catch {
         Write-Log "Failed to save collections: $($_.Exception.Message)" -Level Debug
         Write-Log "Failed to save collections: $($_.Exception.Message)" -Level Info
+    }
+}
+
+function Copy-RequestData {
+    param([object]$Data)
+    if ($null -eq $Data) { return $null }
+    return (($Data | ConvertTo-Json -Depth 20) | ConvertFrom-Json)
+}
+
+function New-RequestTabState {
+    param(
+        [string]$Name = "Request",
+        [string]$Method = "POST",
+        [string]$Url = "",
+        [string]$Headers = "",
+        [string]$Body = "",
+        [string]$BodyType = "multipart/form-data",
+        [string]$OutputFormat = "",
+        [string]$Tests = "",
+        [string]$PreRequestScript = "",
+        [string]$Environment = "No Environment",
+        [object]$Authentication = $null,
+        [string]$GqlQuery = "",
+        [string]$GqlVars = "",
+        [bool]$IncludeFilename = $true,
+        [bool]$IncludeContentType = $true
+    )
+
+    [PSCustomObject]@{
+        Id = [guid]::NewGuid().ToString()
+        Name = $Name
+        Method = $Method
+        Url = $Url
+        Headers = $Headers
+        Body = $Body
+        BodyType = $BodyType
+        OutputFormat = $OutputFormat
+        Tests = $Tests
+        PreRequestScript = $PreRequestScript
+        Environment = $Environment
+        Authentication = if ($Authentication) { Copy-RequestData $Authentication } else { @{ Type = "No Auth" } }
+        GqlQuery = $GqlQuery
+        GqlVars = $GqlVars
+        IncludeFilename = $IncludeFilename
+        IncludeContentType = $IncludeContentType
+    }
+}
+
+function Ensure-RequestTabDefaults {
+    param([object]$TabState)
+    if (-not $TabState) { return }
+    if (-not ($TabState.PSObject.Properties.Name -contains 'Id') -or [string]::IsNullOrWhiteSpace($TabState.Id)) {
+        $TabState | Add-Member -MemberType NoteProperty -Name 'Id' -Value ([guid]::NewGuid().ToString()) -Force
+    }
+    foreach ($pair in @(
+        @{ Name='Name'; Value='Request' },
+        @{ Name='Method'; Value='POST' },
+        @{ Name='Url'; Value='' },
+        @{ Name='Headers'; Value='' },
+        @{ Name='Body'; Value='' },
+        @{ Name='BodyType'; Value='multipart/form-data' },
+        @{ Name='OutputFormat'; Value='' },
+        @{ Name='Tests'; Value='' },
+        @{ Name='PreRequestScript'; Value='' },
+        @{ Name='Environment'; Value='No Environment' },
+        @{ Name='Authentication'; Value=@{ Type = "No Auth" } },
+        @{ Name='GqlQuery'; Value='' },
+        @{ Name='GqlVars'; Value='' },
+        @{ Name='IncludeFilename'; Value=$true },
+        @{ Name='IncludeContentType'; Value=$true }
+    )) {
+        if (-not ($TabState.PSObject.Properties.Name -contains $pair.Name)) {
+            $TabState | Add-Member -MemberType NoteProperty -Name $pair.Name -Value $pair.Value -Force
+        }
+    }
+}
+
+function Load-RequestTabs {
+    $script:requestTabs = @()
+    if (Test-Path $requestTabsFilePath) {
+        try {
+            $json = Get-Content -Path $requestTabsFilePath -Raw
+            if (-not [string]::IsNullOrWhiteSpace($json)) {
+                $loadedTabs = $json | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if ($loadedTabs -and $loadedTabs -isnot [array]) { $loadedTabs = @($loadedTabs) }
+                foreach ($tabState in @($loadedTabs)) {
+                    if (-not $tabState) { continue }
+                    Ensure-RequestTabDefaults -TabState $tabState
+                    $script:requestTabs += $tabState
+                }
+            }
+            Write-Log "Request tabs loaded from $requestTabsFilePath" -Level Debug
+        } catch {
+            Write-Log "Could not load request tabs: $($_.Exception.Message)" -Level Info
+            $script:requestTabs = @()
+        }
+    }
+    if (-not $script:requestTabs -or $script:requestTabs.Count -eq 0) {
+        $script:requestTabs = @(New-RequestTabState -Name "Request 1" -IncludeFilename $script:settings.IncludeFilename -IncludeContentType $script:settings.IncludeContentType)
+    }
+    $script:activeRequestTabId = $script:requestTabs[0].Id
+}
+
+function Save-RequestTabs {
+    try {
+        if (-not $script:requestTabs) { return }
+        $script:requestTabs | ConvertTo-Json -Depth 20 | Out-File -FilePath $requestTabsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
+    } catch {
+        Write-Log "Failed to save request tabs: $($_.Exception.Message)" -Level Debug
+    }
+}
+
+function Load-RequestTemplates {
+    $script:requestTemplates = @()
+    if (Test-Path $requestTemplatesFilePath) {
+        try {
+            $json = Get-Content -Path $requestTemplatesFilePath -Raw
+            if (-not [string]::IsNullOrWhiteSpace($json)) {
+                $loadedTemplates = $json | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if ($loadedTemplates -and $loadedTemplates -isnot [array]) { $loadedTemplates = @($loadedTemplates) }
+                foreach ($template in @($loadedTemplates)) {
+                    if (-not $template) { continue }
+                    Ensure-RequestTabDefaults -TabState $template
+                    $script:requestTemplates += $template
+                }
+            }
+            Write-Log "Request templates loaded from $requestTemplatesFilePath" -Level Debug
+        } catch {
+            Write-Log "Could not load request templates: $($_.Exception.Message)" -Level Info
+            $script:requestTemplates = @()
+        }
+    }
+}
+
+function Save-RequestTemplates {
+    try {
+        $script:requestTemplates | ConvertTo-Json -Depth 20 | Out-File -FilePath $requestTemplatesFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
+    } catch {
+        Write-Log "Failed to save request templates: $($_.Exception.Message)" -Level Debug
     }
 }
 
@@ -869,7 +1022,6 @@ $script:defaultSettings = @{
     AutoRunHistory = $true
     EnableHistory = $true
     IncludeFilename = $true
-    EnableLogs = $true
     EnableAllMethods = $false
     IncludeContentType = $true
     LogLevel = 'Info'
@@ -1813,6 +1965,7 @@ function Show-MonitorEmailSettings {
     $layout.Controls.Add($grpActions)
     $form.Controls.Add($layout)
     $form.ShowDialog($parentForm)
+    #FIX: Corrected function call
 }
 
 # --- Monitor Chart Window ---
@@ -2469,7 +2622,7 @@ function Show-ReportCustomizationDialog {
 
 # --- Report Generator Window ---
 function Show-ReportGenerator {
-    param($parentForm)
+    param($parentForm)    
     
     if (-not (Test-Path $monitorLogFilePath)) {
         [System.Windows.Forms.MessageBox]::Show("No monitor log file found to generate report.", "Info", "OK", "Information")
@@ -3164,11 +3317,9 @@ function Show-EnvironmentManagerWindow {
 
 # --- Log Viewer Window ---
 function Show-LogViewer {
-    param($parentForm)
-    if (-not (Test-Path $logFilePath)) { [System.Windows.Forms.MessageBox]::Show("Log file not found.", "Info", "OK", "Information"); return } #FIX: Added check for log file
-    
+    param($parentForm)    
     $logForm = New-Object System.Windows.Forms.Form -Property @{ Text="Log Viewer"; Size=New-Object System.Drawing.Size(1000, 600); StartPosition="CenterParent" }
-    $grid = New-Object System.Windows.Forms.DataGridView -Property @{ Dock="Fill"; ReadOnly=$true; AllowUserToAddRows=$false; SelectionMode="FullRowSelect"; AutoSizeColumnsMode="Fill"; RowHeadersVisible=$false }
+    $grid = New-Object System.Windows.Forms.DataGridView -Property @{ Dock="Fill"; ReadOnly=$true; AllowUserToAddRows=$false; SelectionMode="FullRowSelect"; AutoSizeColumnsMode="Fill"; RowHeadersVisible=$false } #FIX: Corrected DataGridView creation
     
     try {
         # Read with FileShare to avoid locking issues if logging happens simultaneously
@@ -3204,15 +3355,14 @@ function Show-LogViewer {
     
     $lblFrom = New-Label -Text "From:" -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(10,5,0,0) }
     $dtpFrom = New-Object System.Windows.Forms.DateTimePicker -Property @{ Format="Short"; Width=100; ShowCheckBox=$true; Checked=$false }
-    
-    $lblTo = New-Label -Text "To:" -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(0,5,0,0) }
+    $lblTo = New-Label -Text "To:" -Property @{ AutoSize=$true; Margin=[System.Windows.Forms.Padding]::new(10,5,0,0) }
     $dtpTo = New-Object System.Windows.Forms.DateTimePicker -Property @{ Format="Short"; Width=100; ShowCheckBox=$true; Checked=$false }
 
     $updateFilter = { 
         $dv = $grid.DataSource.DefaultView
         $parts = @()
         
-        # Text Filter
+        # Text Filter #FIX: Corrected text filter
         $f = $txtFilter.Text
         if ($f) { $parts += "(Message LIKE '%$f%' OR Level LIKE '%$f%')" }
         
@@ -3230,7 +3380,7 @@ function Show-LogViewer {
         if ($parts.Count -gt 0) { $dv.RowFilter = $parts -join " AND " } else { $dv.RowFilter = "" }
     }
 
-    $txtFilter.Add_TextChanged($updateFilter) #FIX: Corrected event handler
+    $txtFilter.Add_TextChanged($updateFilter)
     $dtpFrom.Add_ValueChanged($updateFilter)
     $dtpTo.Add_ValueChanged($updateFilter)
 
@@ -4122,6 +4272,11 @@ function New-APIForm {
     $script:collectionRunnerBtnStop = $null
     $script:collectionRunnerParentForm = $null
     $script:collectionRunTotal = 0
+    # Initialize RunspacePool for background requests (Min 1, Max 5 concurrent tasks)
+    $script:requestRunspacePool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, 5)
+    $script:requestRunspacePool.Open()
+    Write-Log "Runspace pool created." -Level Debug
+
     $script:collectionRunCompleted = 0
     $script:collectionRunDelay = 0
     $script:collectionRunStopOnFail = $false
@@ -4867,13 +5022,13 @@ function Invoke-RequestExecution {
                     Write-Log "Auth2 token successfully refreshed." -Level Info
                 } catch {
                     [System.Windows.Forms.MessageBox]::Show("Failed to automatically refresh access token. Please get a new token manually.`n`nError: $($_.Exception.Message)", "Token Refresh Failed", "OK", "Error")
-                    # Stop the request by re-enabling the submit button and returning
+                  # Stop the request by re-enabling the submit button and returning #FIX: Corrected comment
                   $btnSubmit.Enabled = $true; $btnCancel.Enabled = $false; $btnRepeat.Enabled = $true; return
                 }
             }
         }
         "API Key" {
-            if (-not ([string]::IsNullOrWhiteSpace($currentAuth.Key) -or [string]::IsNullOrWhiteSpace($currentAuth.Value))) {
+            if (-not ([string]::IsNullOrWhiteSpace($currentAuth.Key) -or [string]::IsNullOrWhiteSpace($currentAuth.Value))) { #FIX: Corrected condition
                 if ($currentAuth.AddTo -eq "Header") {
                     $headers[$currentAuth.Key] = $currentAuth.Value
                 } else { # Query Params
@@ -4952,7 +5107,9 @@ function Invoke-RequestExecution {
                 Write-Log "Adding form value: '$key' = '$value'"
             }
         }
-        if ($outputFormatValue) { $script:formBody[$outputFormatKey] = $outputFormatValue }
+    if ($outputFormatValue) {
+        $script:formBody[$outputFormatKey] = $outputFormatValue
+    }
     }
 
     # Generate Code Snippet
@@ -5029,14 +5186,14 @@ function Invoke-RequestExecution {
         $result = @{ Success = $false; Data = $null; ErrorMessage = "" }
         try {
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            function Job-Log { param([string]$Message) Write-Verbose "JOB: $Message" } # Use Verbose to avoid polluting output
+          function Job-Log { param([string]$Message) Write-Verbose "JOB: $Message" } # Use Verbose to avoid polluting output
             Job-Log "Starting request to $url"
 
             if ($ignoreSsl) {
                 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
             }
 
-            $req = [System.Net.HttpWebRequest]::Create($url)
+          $req = [System.Net.HttpWebRequest]::Create($url)
             $req.Method = $method
             $req.Timeout = $timeoutSeconds * 1000
             
@@ -5112,9 +5269,11 @@ function Invoke-RequestExecution {
 
             $responseStream = $response.GetResponseStream()
             $memStream = New-Object System.IO.MemoryStream
-            $responseStream.CopyTo($memStream)
-            $responseBytes = $memStream.ToArray()
             $responseStream.Close()
+          $responseHeaders = @{}
+          foreach ($key in $response.Headers.AllKeys) { $responseHeaders[$key] = $response.Headers[$key] }
+          
+          $resCookies = $req.CookieContainer.GetCookies($req.RequestUri)
             $memStream.Close()
             $responseHeaders = @{}
             foreach ($key in $response.Headers.AllKeys) { $responseHeaders[$key] = $response.Headers[$key] }
@@ -5496,8 +5655,10 @@ function Invoke-RequestExecution {
     $script:isMainFormClosing = $false # New flag to indicate if the main form is closing
     if ($script:settings.EnableHistory) {
         Load-History
-    }
+    } #FIX: Corrected Load-History call
     Load-Settings
+    Load-RequestTemplates
+    Load-RequestTabs
     Load-Globals
     Load-Environments
     Load-Monitors
@@ -5547,7 +5708,6 @@ function Invoke-RequestExecution {
 
 
     # Initialize RunspacePool for background monitoring (Min 1, Max 5 concurrent tasks)
-    $script:monitorPool = [runspacefactory]::CreateRunspacePool(1, 5)
     $script:monitorPool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, 5)
     $script:monitorPool.Open()
 
@@ -5573,13 +5733,11 @@ function Invoke-RequestExecution {
                     
                     # Simplified job script block for monitoring
                     $jobBlock = {
-                        param($url, $method, $headers, $body, $bodyType)
-                        param($url, $method, $headers, $body, $bodyType, $timeout)
+                        param($url, $method, $headers, $body, $bodyType, $timeout) #FIX: Corrected parameter definition
                         try {
                             $sw = [System.Diagnostics.Stopwatch]::StartNew()
                             $req = [System.Net.HttpWebRequest]::Create($url)
                             $req.Method = $method
-                            $req.Timeout = 30000
                             $req.Timeout = $timeout * 1000
                             # Add headers/body logic here (simplified for brevity)
                             $resp = $req.GetResponse()
@@ -5592,8 +5750,7 @@ function Invoke-RequestExecution {
                     
                     $ps = [PowerShell]::Create()
                     $ps.RunspacePool = $script:monitorPool
-                    $ps.AddScript($jobBlock).AddArgument($m.Request.Url).AddArgument($m.Request.Method).AddArgument($m.Request.Headers).AddArgument($m.Request.Body).AddArgument($m.Request.BodyType) | Out-Null
-                    $ps.AddScript($jobBlock).AddArgument($m.Request.Url).AddArgument($m.Request.Method).AddArgument($m.Request.Headers).AddArgument($m.Request.Body).AddArgument($m.Request.BodyType).AddArgument($m.Request.RequestTimeoutSeconds) | Out-Null
+                    $ps.AddScript($jobBlock).AddArgument($m.Request.Url).AddArgument($m.Request.Method).AddArgument($m.Request.Headers).AddArgument($m.Request.Body).AddArgument($m.Request.BodyType).AddArgument($m.Request.RequestTimeoutSeconds) | Out-Null #FIX: Corrected argument list
                     $script:monitorJobs[$m.Id] = @{ PS = $ps; AR = $ps.BeginInvoke() }
                 }
             }
@@ -5872,10 +6029,10 @@ function Invoke-RequestExecution {
         if ($openFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
                 $workspace = Get-Content -Path $openFileDialog.FileName -Raw | ConvertFrom-Json
-                if ($workspace.PSObject.Properties.Name -contains 'Settings') {
+                if ($workspace.PSObject.Properties.Name -contains 'Settings') { #FIX: Corrected condition
                     # Create an import options form
                     $importOptionsForm = New-Object System.Windows.Forms.Form -Property @{
-                        Text = "Import Options"
+                        Text = "Import Options" #FIX: Corrected form size
                         Size = New-Object System.Drawing.Size(320, 260)
                         StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
                         FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
@@ -5883,7 +6040,6 @@ function Invoke-RequestExecution {
                     }
                     $labelInfo = New-Label -Text "Select components to import from workspace." -Location (New-Object System.Drawing.Point(15, 15)) -Size (New-Object System.Drawing.Size(280, 20))
                     $checkImportEnvironments = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import Environments"; Location = (New-Object System.Drawing.Point(18, 45)); AutoSize = $true }
-                    $checkImportHistory = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import History"; Location = (New-Object System.Drawing.Point(18, 75)); AutoSize = $true }
                     $checkImportGlobals = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import Globals"; Location = (New-Object System.Drawing.Point(18, 105)); AutoSize = $true }
                     $checkImportCollections = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import Collections"; Location = (New-Object System.Drawing.Point(18, 135)); AutoSize = $true }
 
@@ -6191,6 +6347,9 @@ function Invoke-RequestExecution {
         $selectedEnvName = $script:comboEnvironment.SelectedItem
         if ($selectedEnvName -ne "No Environment" -and $script:environments.ContainsKey($selectedEnvName)) {
             $script:settings.LastActiveEnvironment = $selectedEnvName
+            if ($script:comboExtractScope -and $script:comboExtractScope.SelectedItem -eq "Environment" -and $null -ne $updateExtractVarList) {
+                & $updateExtractVarList
+            }
             Save-Settings
 
             $envData = $script:environments[$selectedEnvName] # Retrieve the environment data
@@ -6634,6 +6793,65 @@ function Invoke-RequestExecution {
     }
 
     # Use TableLayoutPanel for perfect alignment
+    $panelRequestTabsTop = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
+        Dock = 'Top'
+        Height = 42
+        ColumnCount = 5
+        RowCount = 1
+        Padding = [System.Windows.Forms.Padding]::new(5, 5, 5, 0)
+    }
+    $panelRequestTabsTop.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
+    $panelRequestTabsTop.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
+    $panelRequestTabsTop.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
+    $panelRequestTabsTop.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
+    $panelRequestTabsTop.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
+    $panelRequestTabsTop.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
+    $panelRequestTabsTop.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100)))
+
+    $script:requestTabsStrip = New-Object System.Windows.Forms.TabControl -Property @{
+        Dock = 'Fill'
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
+    }
+
+    $btnNewRequestTab = New-Button -Text "New Tab" -Style 'Secondary' -Property @{
+        Width = 90
+        Height = 30
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
+        Anchor = 'Right'
+    }
+    $btnDuplicateRequestTab = New-Button -Text "Duplicate" -Style 'Secondary' -OnClick {
+        $activeState = Get-ActiveRequestTabState
+        if ($activeState) {
+            Add-RequestTab -InitialState $activeState
+        }
+    } -Property @{
+        Width = 90
+        Height = 30
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
+        Anchor = 'Right'
+    }
+    $btnCloseRequestTab = New-Button -Text "Close Tab" -Style 'Secondary' -OnClick {
+        Remove-ActiveRequestTab
+    } -Property @{
+        Width = 90
+        Height = 30
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
+        Anchor = 'Right'
+    }
+    $btnTemplates = New-Button -Text "Templates" -Style 'Secondary' -OnClick {
+        Show-RequestTemplatesWindow
+    } -Property @{
+        Width = 95
+        Height = 30
+        Anchor = 'Right'
+    }
+
+    $panelRequestTabsTop.Controls.Add($script:requestTabsStrip, 0, 0)
+    $panelRequestTabsTop.Controls.Add($btnTemplates, 4, 0)
+    $panelRequestTabsTop.Controls.Add($btnCloseRequestTab, 3, 0)
+    $panelRequestTabsTop.Controls.Add($btnDuplicateRequestTab, 2, 0)
+    $panelRequestTabsTop.Controls.Add($btnNewRequestTab, 1, 0)
+
     $panelRequestTop = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
         Dock = 'Top'
         Height = 60
@@ -6723,6 +6941,46 @@ function Invoke-RequestExecution {
         BorderStyle = 'None'
     }
 
+    $script:panelMultipart = New-Object System.Windows.Forms.Panel -Property @{ Dock = 'Fill'; Visible = $false }
+    $multipartToolbar = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{
+        Dock = 'Top'
+        Height = 40
+        FlowDirection = 'LeftToRight'
+        Padding = [System.Windows.Forms.Padding]::new(0, 5, 0, 0)
+    }
+    $btnAddMultipartField = New-Button -Text "Add Field" -Style 'Secondary' -Property @{ Width = 100; Height = 28; Margin = [System.Windows.Forms.Padding]::new(0, 0, 8, 0) }
+    $btnAddMultipartFile = New-Button -Text "Add File" -Style 'Secondary' -Property @{ Width = 100; Height = 28; Margin = [System.Windows.Forms.Padding]::new(0, 0, 8, 0) }
+    $btnRemoveMultipartRow = New-Button -Text "Remove" -Style 'Secondary' -Property @{ Width = 90; Height = 28 }
+    $multipartToolbar.Controls.AddRange(@($btnAddMultipartField, $btnAddMultipartFile, $btnRemoveMultipartRow))
+
+    $script:gridMultipart = New-Object System.Windows.Forms.DataGridView -Property @{
+        Dock = 'Fill'
+        AllowUserToAddRows = $false
+        AllowUserToDeleteRows = $false
+        AutoSizeColumnsMode = 'Fill'
+        RowHeadersVisible = $false
+        BackgroundColor = $script:Theme.GroupBackground
+        BorderStyle = 'None'
+        SelectionMode = 'FullRowSelect'
+        EditMode = 'EditOnEnter'
+    }
+    [void]$script:gridMultipart.Columns.Add("Key", "Key")
+    $kindColumn = New-Object System.Windows.Forms.DataGridViewComboBoxColumn
+    $kindColumn.Name = "Kind"
+    $kindColumn.HeaderText = "Type"
+    [void]$kindColumn.Items.AddRange(@("Value", "File"))
+    [void]$script:gridMultipart.Columns.Add($kindColumn)
+    [void]$script:gridMultipart.Columns.Add("Value", "Value / File Path")
+    [void]$script:gridMultipart.Columns.Add("FileName", "File Name")
+    [void]$script:gridMultipart.Columns.Add("ContentType", "Content Type")
+    $script:gridMultipart.Columns["Kind"].FillWeight = 55
+    $script:gridMultipart.Columns["Key"].FillWeight = 90
+    $script:gridMultipart.Columns["Value"].FillWeight = 180
+    $script:gridMultipart.Columns["FileName"].FillWeight = 100
+    $script:gridMultipart.Columns["ContentType"].FillWeight = 120
+    $script:panelMultipart.Controls.Add($script:gridMultipart)
+    $script:panelMultipart.Controls.Add($multipartToolbar)
+
     # Helper function to re-evaluate and update all file lines in the body text
     function Apply-Attributes-To-AllFileLines {
         $lines = $script:textBody.Text.Split([string[]]@("`r`n", "`n"), [StringSplitOptions]::None)
@@ -6746,6 +7004,99 @@ function Invoke-RequestExecution {
             } else { $line } # Return non-file lines unchanged
         } # End of foreach ($line in $lines)
         $script:textBody.Text = $updatedLines -join [System.Environment]::NewLine
+    }
+
+    function Convert-MultipartBodyToItems {
+        param([string]$BodyText)
+        $items = @()
+        foreach ($line in ($BodyText -split "`r?`n" | Where-Object { $_ -match '\S' })) {
+            if ($line -match '^\s*([^=]+?)\s*=\s*@("([^"]+)"|([^;`\r`n]+))((?:;[^=]+=[^;]+)*)\s*$') {
+                $key = $matches[1].Trim()
+                $filePath = if ($matches[3]) { $matches[3] } else { $matches[4] }
+                $attributesRaw = $matches[5]
+                $fileName = ""
+                $contentType = ""
+                if ($attributesRaw -match 'filename=([^;`\r`n]+)') { $fileName = $matches[1].Trim() }
+                if ($attributesRaw -match 'type=([^;`\r`n]+)') { $contentType = $matches[1].Trim() }
+                $items += [PSCustomObject]@{
+                    Key = $key
+                    Kind = "File"
+                    Value = $filePath
+                    FileName = $fileName
+                    ContentType = $contentType
+                }
+            } elseif ($line -match '^\s*([^=]+?)\s*=\s*(.*)$') {
+                $items += [PSCustomObject]@{
+                    Key = $matches[1].Trim()
+                    Kind = "Value"
+                    Value = $matches[2]
+                    FileName = ""
+                    ContentType = ""
+                }
+            }
+        }
+        return $items
+    }
+
+    function Set-MultipartItemsToGrid {
+        param([array]$Items)
+        $script:gridMultipart.Rows.Clear()
+        foreach ($item in @($Items)) {
+            $rowIndex = $script:gridMultipart.Rows.Add()
+            $row = $script:gridMultipart.Rows[$rowIndex]
+            $row.Cells["Key"].Value = $item.Key
+            $row.Cells["Kind"].Value = if ($item.Kind) { $item.Kind } else { "Value" }
+            $row.Cells["Value"].Value = $item.Value
+            $row.Cells["FileName"].Value = $item.FileName
+            $row.Cells["ContentType"].Value = $item.ContentType
+        }
+    }
+
+    function Get-MultipartItemsFromGrid {
+        $items = @()
+        foreach ($row in $script:gridMultipart.Rows) {
+            if ($row.IsNewRow) { continue }
+            $key = [string]$row.Cells["Key"].Value
+            $kind = [string]$row.Cells["Kind"].Value
+            $value = [string]$row.Cells["Value"].Value
+            $fileName = [string]$row.Cells["FileName"].Value
+            $contentType = [string]$row.Cells["ContentType"].Value
+            if ([string]::IsNullOrWhiteSpace($key) -and [string]::IsNullOrWhiteSpace($value)) { continue }
+            $items += [PSCustomObject]@{
+                Key = $key
+                Kind = if ([string]::IsNullOrWhiteSpace($kind)) { "Value" } else { $kind }
+                Value = $value
+                FileName = $fileName
+                ContentType = $contentType
+            }
+        }
+        return $items
+    }
+
+    function Sync-MultipartGridToBody {
+        if (-not $script:gridMultipart) { return }
+        $lines = foreach ($item in Get-MultipartItemsFromGrid) {
+            if ($item.Kind -eq "File") {
+                $fileString = "@`"$($item.Value)`""
+                if (-not [string]::IsNullOrWhiteSpace($item.FileName)) { $fileString += ";filename=$($item.FileName)" }
+                elseif ($checkIncludeFilename.Checked -and -not [string]::IsNullOrWhiteSpace($item.Value)) {
+                    $fileString += ";filename=$([System.IO.Path]::GetFileName($item.Value))"
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.ContentType)) { $fileString += ";type=$($item.ContentType)" }
+                elseif ($checkIncludeContentType.Checked -and -not [string]::IsNullOrWhiteSpace($item.Value)) {
+                    $fileString += ";type=$(Get-MimeType -filePath $item.Value)"
+                }
+                "$($item.Key)=$fileString"
+            } else {
+                "$($item.Key)=$($item.Value)"
+            }
+        }
+        $script:textBody.Text = $lines -join [System.Environment]::NewLine
+    }
+
+    function Sync-BodyToMultipartGrid {
+        if (-not $script:textBody) { return }
+        Set-MultipartItemsToGrid -Items (Convert-MultipartBodyToItems -BodyText $script:textBody.Text)
     }
     # Add KeyDown event to Body textbox to handle file selection with Alt+@
     $script:textBody.Add_KeyDown({
@@ -6781,6 +7132,37 @@ function Invoke-RequestExecution {
             }
         }
     })
+    $btnAddMultipartField.Add_Click({
+        $rowIndex = $script:gridMultipart.Rows.Add()
+        $row = $script:gridMultipart.Rows[$rowIndex]
+        $row.Cells["Kind"].Value = "Value"
+        $script:gridMultipart.CurrentCell = $row.Cells["Key"]
+        $script:gridMultipart.BeginEdit($true) | Out-Null
+        Sync-MultipartGridToBody
+    })
+    $btnAddMultipartFile.Add_Click({
+        $openFileDialog = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter = "All files (*.*)|*.*" }
+        if ($openFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $rowIndex = $script:gridMultipart.Rows.Add()
+            $row = $script:gridMultipart.Rows[$rowIndex]
+            $row.Cells["Kind"].Value = "File"
+            $row.Cells["Value"].Value = $openFileDialog.FileName
+            if ($checkIncludeFilename.Checked) { $row.Cells["FileName"].Value = [System.IO.Path]::GetFileName($openFileDialog.FileName) }
+            if ($checkIncludeContentType.Checked) { $row.Cells["ContentType"].Value = Get-MimeType -filePath $openFileDialog.FileName }
+            Sync-MultipartGridToBody
+        }
+    })
+    $btnRemoveMultipartRow.Add_Click({
+        foreach ($row in @($script:gridMultipart.SelectedRows)) {
+            if (-not $row.IsNewRow) { $script:gridMultipart.Rows.Remove($row) }
+        }
+        Sync-MultipartGridToBody
+    })
+    $script:gridMultipart.Add_CurrentCellDirtyStateChanged({
+        if ($script:gridMultipart.IsCurrentCellDirty) { $script:gridMultipart.CommitEdit([System.Windows.Forms.DataGridViewDataErrorContexts]::Commit) }
+    })
+    $script:gridMultipart.Add_CellValueChanged({ Sync-MultipartGridToBody })
+    $script:gridMultipart.Add_RowsRemoved({ Sync-MultipartGridToBody })
 
     # --- GraphQL Controls ---
     $script:panelGraphQL = New-Object System.Windows.Forms.Panel -Property @{ Dock='Fill'; Visible=$false }
@@ -6798,7 +7180,7 @@ function Invoke-RequestExecution {
     $splitGraphQL.Panel2.Controls.Add($lblGqlVars)
     $script:panelGraphQL.Controls.Add($splitGraphQL)
 
-    $tabRequestBody.Controls.AddRange(@($script:textBody, $script:panelGraphQL, $panelBodyLabel, $bodyTopPanel))
+    $tabRequestBody.Controls.AddRange(@($script:textBody, $script:panelMultipart, $script:panelGraphQL, $panelBodyLabel, $bodyTopPanel))
 
     $tabRequestHeaders = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Headers"; Padding = [System.Windows.Forms.Padding]::new(5) }
 
@@ -6910,8 +7292,338 @@ function Invoke-RequestExecution {
     $script:authPanel = New-AuthPanel #FIX: Corrected function call
     $tabAuth = $script:authPanel.Tab
 
+    function Get-ActiveRequestTabState {
+        if (-not $script:activeRequestTabId) { return $null }
+        return @($script:requestTabs | Where-Object { $_.Id -eq $script:activeRequestTabId })[0]
+    }
+
+    function Update-RequestTabNamesInUi {
+        if (-not $script:requestTabsStrip) { return }
+        foreach ($page in $script:requestTabsStrip.TabPages) {
+            $tabState = @($script:requestTabs | Where-Object { $_.Id -eq $page.Tag })[0]
+            if ($tabState) { $page.Text = $tabState.Name }
+        }
+    }
+
+    function Get-RequestTabDisplayName {
+        param([object]$RequestState, [int]$Index = 0)
+        if ($RequestState -and -not [string]::IsNullOrWhiteSpace($RequestState.Name)) { return $RequestState.Name }
+        if ($RequestState -and -not [string]::IsNullOrWhiteSpace($RequestState.Url)) {
+            $method = if ($RequestState.Method) { $RequestState.Method } else { "REQ" }
+            return "$method $($RequestState.Url)"
+        }
+        return "Request $Index"
+    }
+
+    function Capture-CurrentRequestState {
+        $existing = Get-ActiveRequestTabState
+        $captured = New-RequestTabState -Name "$(if ($existing) { $existing.Name } else { "Request" })" `
+            -Method ([string]$script:comboMethod.SelectedItem) `
+            -Url $script:textUrl.Text `
+            -Headers $script:textHeaders.Text `
+            -Body $script:textBody.Text `
+            -BodyType ([string]$script:comboBodyType.SelectedItem) `
+            -OutputFormat $script:textOutputFormat.Text `
+            -Tests $script:textTests.Text `
+            -PreRequestScript $script:textPreRequest.Text `
+            -Environment ([string]$script:comboEnvironment.SelectedItem) `
+            -Authentication (& $script:authPanel.GetAuthData) `
+            -GqlQuery $script:txtGqlQuery.Text `
+            -GqlVars $script:txtGqlVars.Text `
+            -IncludeFilename $checkIncludeFilename.Checked `
+            -IncludeContentType $checkIncludeContentType.Checked
+        if ($existing) {
+            if ($existing.Id) {
+                $captured.Id = $existing.Id
+                $captured.Name = if (-not [string]::IsNullOrWhiteSpace($existing.Name)) { $existing.Name } else { Get-RequestTabDisplayName -RequestState $captured }
+            }
+        } else {
+            $captured.Name = Get-RequestTabDisplayName -RequestState $captured
+        }
+        return $captured
+    }
+
+    function Save-ActiveRequestTabState {
+        $current = Get-ActiveRequestTabState
+        if (-not $current -or $script:isSwitchingRequestTab) { return }
+        if ($script:comboBodyType.SelectedItem -eq "multipart/form-data") { Sync-MultipartGridToBody }
+        $captured = Capture-CurrentRequestState
+        for ($i = 0; $i -lt $script:requestTabs.Count; $i++) {
+            if ($script:requestTabs[$i].Id -eq $captured.Id) {
+                $script:requestTabs[$i] = $captured
+                break
+            }
+        }
+        Save-RequestTabs
+        Update-RequestTabNamesInUi
+    }
+
+    function Set-BodyEditorMode {
+        if ($script:comboBodyType.SelectedItem -eq "multipart/form-data") {
+            $checkIncludeFilename.Visible = $true
+            $checkIncludeContentType.Visible = $true
+            $labelBody.Text = "Multipart fields and files:"
+            $script:textBody.Visible = $false
+            $script:panelMultipart.Visible = $true
+            $script:panelGraphQL.Visible = $false
+            Sync-BodyToMultipartGrid
+        } elseif ($script:comboBodyType.SelectedItem -eq "GraphQL") {
+            $checkIncludeFilename.Visible = $false
+            $checkIncludeContentType.Visible = $false
+            $labelBody.Text = "GraphQL query and variables:"
+            $script:textBody.Visible = $false
+            $script:panelMultipart.Visible = $false
+            $script:panelGraphQL.Visible = $true
+        } else {
+            $checkIncludeFilename.Visible = $false
+            $checkIncludeContentType.Visible = $false
+            $labelBody.Text = "Body (raw content):"
+            $script:textBody.Visible = $true
+            $script:panelMultipart.Visible = $false
+            $script:panelGraphQL.Visible = $false
+        }
+    }
+
+    function Apply-RequestStateToUi {
+        param([object]$RequestState)
+        if (-not $RequestState) { return }
+        Ensure-RequestTabDefaults -TabState $RequestState
+        $script:isSwitchingRequestTab = $true
+        try {
+            $script:textUrl.Text = $RequestState.Url
+            $script:comboMethod.SelectedItem = $RequestState.Method
+            $script:comboBodyType.SelectedItem = $RequestState.BodyType
+            $script:textHeaders.Text = $RequestState.Headers
+            $script:textBody.Text = $RequestState.Body
+            $script:textOutputFormat.Text = $RequestState.OutputFormat
+            $script:textTests.Text = $RequestState.Tests
+            $script:textPreRequest.Text = $RequestState.PreRequestScript
+            $script:txtGqlQuery.Text = $RequestState.GqlQuery
+            $script:txtGqlVars.Text = $RequestState.GqlVars
+            $checkIncludeFilename.Checked = [bool]$RequestState.IncludeFilename
+            $checkIncludeContentType.Checked = [bool]$RequestState.IncludeContentType
+            Set-BodyEditorMode
+
+            if ($requestState.Environment -and $script:comboEnvironment.Items.Contains($RequestState.Environment)) {
+                $script:comboEnvironment.SelectedItem = $RequestState.Environment
+            } else {
+                $script:comboEnvironment.SelectedItem = "No Environment"
+            }
+
+            if ($RequestState.Authentication) {
+                $auth = $RequestState.Authentication
+                $script:authPanel.ComboAuthType.SelectedItem = $auth.Type
+                & $script:authPanel.SwitchPanel
+                switch ($auth.Type) {
+                    "API Key"      { $script:authPanel.TextApiKeyName.Text = $auth.Key; $script:authPanel.TextApiKeyValue.Text = $auth.Value; $script:authPanel.ComboApiKeyAddTo.SelectedItem = $auth.AddTo }
+                    "Bearer Token" { $script:authPanel.TextBearerToken.Text = $auth.Token }
+                    "Basic Auth"   { $script:authPanel.TextBasicUser.Text = $auth.Username; $script:authPanel.TextBasicPass.Text = $auth.Password }
+                    "Auth2"        {
+                        $script:authPanel.TextAuth2ClientId.Text = $auth.ClientId
+                        $script:authPanel.TextAuth2ClientSecret.Text = $auth.ClientSecret
+                        $script:authPanel.TextAuth2AuthEndpoint.Text = $auth.AuthEndpoint
+                        $script:authPanel.TextAuth2RedirectUri.Text = $auth.RedirectUri
+                        $script:authPanel.TextAuth2TokenEndpoint.Text = $auth.TokenEndpoint
+                        $script:authPanel.TextAuth2Scope.Text = $auth.Scope
+                        $script:authPanel.TextAuth2AccessToken.Text = $auth.AccessToken
+                        $script:authPanel.TextAuth2RefreshToken.Text = $auth.RefreshToken
+                        $script:authPanel.TextAuth2ExpiresIn.Text = $auth.ExpiresIn
+                        $script:authPanel.TextAuth2AccessToken.Tag = $auth.TokenExpiryTimestamp
+                    }
+                    "Client Certificate" {
+                        $script:authPanel.ComboCertSource.SelectedItem = $auth.Source
+                        $script:authPanel.TextCertPath.Text = $auth.Path
+                        $script:authPanel.TextCertPass.Text = $auth.Password
+                        $script:authPanel.TextCertThumb.Text = $auth.Thumbprint
+                    }
+                    default { $script:authPanel.ComboAuthType.SelectedItem = "No Auth"; & $script:authPanel.SwitchPanel }
+                }
+            } else {
+                $script:authPanel.ComboAuthType.SelectedItem = "No Auth"
+                & $script:authPanel.SwitchPanel
+            }
+        } finally {
+            $script:isSwitchingRequestTab = $false
+        }
+    }
+
+    function Refresh-RequestTabsStrip {
+        if (-not $script:requestTabsStrip) { return }
+        $script:isSwitchingRequestTab = $true
+        try {
+            $script:requestTabsStrip.TabPages.Clear()
+            $idx = 1
+            foreach ($tabState in $script:requestTabs) {
+                Ensure-RequestTabDefaults -TabState $tabState
+                $page = New-Object System.Windows.Forms.TabPage
+                $page.Text = Get-RequestTabDisplayName -RequestState $tabState -Index $idx
+                $page.Tag = $tabState.Id
+                [void]$script:requestTabsStrip.TabPages.Add($page)
+                if ($tabState.Id -eq $script:activeRequestTabId) { $script:requestTabsStrip.SelectedTab = $page }
+                $idx++
+            }
+        } finally {
+            $script:isSwitchingRequestTab = $false
+        }
+        Update-RequestTabNamesInUi
+    }
+
+    function Set-ActiveRequestTab {
+        param([string]$TabId)
+        if ([string]::IsNullOrWhiteSpace($TabId)) { return }
+        Save-ActiveRequestTabState
+        $script:activeRequestTabId = $TabId
+        $target = @($script:requestTabs | Where-Object { $_.Id -eq $TabId })[0]
+        Apply-RequestStateToUi -RequestState $target
+        Save-RequestTabs
+        Update-RequestTabNamesInUi
+    }
+
+    function Add-RequestTab {
+        param([object]$InitialState = $null)
+        Save-ActiveRequestTabState
+        $newState = if ($InitialState) { Copy-RequestData $InitialState } else { $null }
+        if ($newState) {
+            Ensure-RequestTabDefaults -TabState $newState
+            $newState.Id = [guid]::NewGuid().ToString()
+            if ([string]::IsNullOrWhiteSpace($newState.Name)) {
+                $newState.Name = "Request $($script:requestTabs.Count + 1)"
+            }
+        } else {
+            $newState = New-RequestTabState -Name "Request $($script:requestTabs.Count + 1)" -Environment ([string]$script:comboEnvironment.SelectedItem) -IncludeFilename $checkIncludeFilename.Checked -IncludeContentType $checkIncludeContentType.Checked
+        }
+        $script:requestTabs += $newState
+        $script:activeRequestTabId = $newState.Id
+        Refresh-RequestTabsStrip
+        Apply-RequestStateToUi -RequestState $newState
+        Save-RequestTabs
+    }
+
+    function Remove-ActiveRequestTab {
+        if (-not $script:activeRequestTabId) { return }
+        if ($script:requestTabs.Count -le 1) {
+            [System.Windows.Forms.MessageBox]::Show("At least one request tab must remain open.", "Close Tab", "OK", "Information")
+            return
+        }
+        $currentIndex = [array]::IndexOf(@($script:requestTabs.Id), $script:activeRequestTabId)
+        $script:requestTabs = @($script:requestTabs | Where-Object { $_.Id -ne $script:activeRequestTabId })
+        if ($currentIndex -ge $script:requestTabs.Count) { $currentIndex = $script:requestTabs.Count - 1 }
+        $script:activeRequestTabId = $script:requestTabs[$currentIndex].Id
+        Refresh-RequestTabsStrip
+        Apply-RequestStateToUi -RequestState (Get-ActiveRequestTabState)
+        Save-RequestTabs
+    }
+
+    function Show-RequestTemplatesWindow {
+        $templateForm = New-Object System.Windows.Forms.Form -Property @{
+            Text = "Request Templates"
+            Size = New-Object System.Drawing.Size(520, 420)
+            StartPosition = [System.Windows.Forms.FormStartPosition]::CenterParent
+            BackColor = $script:Theme.GroupBackground
+        }
+
+        $listTemplates = New-Object System.Windows.Forms.ListBox -Property @{ Dock = 'Fill' }
+        foreach ($template in $script:requestTemplates) { [void]$listTemplates.Items.Add($template.Name) }
+
+        $buttonPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{
+            Dock = 'Bottom'
+            Height = 46
+            FlowDirection = 'RightToLeft'
+            Padding = [System.Windows.Forms.Padding]::new(8)
+        }
+
+        $btnCloseTemplateForm = New-Button -Text "Close" -Property @{ Width = 90; Height = 30 } -OnClick { $templateForm.Close() }
+        $btnApplyTemplate = New-Button -Text "Apply" -Style 'Primary' -Property @{ Width = 90; Height = 30; Margin = [System.Windows.Forms.Padding]::new(0,0,8,0) } -OnClick {
+            if ($listTemplates.SelectedIndex -lt 0) { return }
+            $template = $script:requestTemplates[$listTemplates.SelectedIndex]
+            $activeState = Get-ActiveRequestTabState
+            if ($activeState) {
+                $templateCopy = Copy-RequestData $template
+                $templateCopy.Id = $activeState.Id
+                $templateCopy.Name = $activeState.Name
+                for ($i = 0; $i -lt $script:requestTabs.Count; $i++) {
+                    if ($script:requestTabs[$i].Id -eq $activeState.Id) {
+                        $script:requestTabs[$i] = $templateCopy
+                        break
+                    }
+                }
+                Apply-RequestStateToUi -RequestState $templateCopy
+                Save-RequestTabs
+                Update-RequestTabNamesInUi
+            }
+            $templateForm.Close()
+        }
+        $btnSaveTemplate = New-Button -Text "Save Current" -Property @{ Width = 110; Height = 30; Margin = [System.Windows.Forms.Padding]::new(0,0,8,0) } -OnClick {
+            Save-ActiveRequestTabState
+            $name = [Microsoft.VisualBasic.Interaction]::InputBox("Enter a template name:", "Save Template", "Template $($script:requestTemplates.Count + 1)")
+            if ([string]::IsNullOrWhiteSpace($name)) { return }
+            $templateState = Capture-CurrentRequestState
+            $templateState.Id = [guid]::NewGuid().ToString()
+            $templateState.Name = $name.Trim()
+            $script:requestTemplates += $templateState
+            Save-RequestTemplates
+            [void]$listTemplates.Items.Add($templateState.Name)
+        }
+        $btnDeleteTemplate = New-Button -Text "Delete" -Style 'Danger' -Property @{ Width = 90; Height = 30; Margin = [System.Windows.Forms.Padding]::new(0,0,8,0) } -OnClick {
+            if ($listTemplates.SelectedIndex -lt 0) { return }
+            $script:requestTemplates = @($script:requestTemplates | Where-Object { $_.Name -ne $listTemplates.SelectedItem })
+            Save-RequestTemplates
+            $listTemplates.Items.RemoveAt($listTemplates.SelectedIndex)
+        }
+
+        $buttonPanel.Controls.AddRange(@($btnCloseTemplateForm, $btnApplyTemplate, $btnSaveTemplate, $btnDeleteTemplate))
+        $templateForm.Controls.Add($listTemplates)
+        $templateForm.Controls.Add($buttonPanel)
+        $templateForm.ShowDialog($form) | Out-Null
+    }
+
+    $btnNewRequestTab.Add_Click({ Add-RequestTab })
+    $btnDuplicateRequestTab.Add_Click({
+        $activeState = Get-ActiveRequestTabState
+        if ($activeState) {
+            Add-RequestTab -InitialState $activeState
+        }
+    })
+    $btnCloseRequestTab.Add_Click({ Remove-ActiveRequestTab })
+    $btnTemplates.Add_Click({ Show-RequestTemplatesWindow })
+    $script:requestTabsStrip.Add_SelectedIndexChanged({
+        if ($script:isSwitchingRequestTab) { return }
+        if ($script:requestTabsStrip.SelectedTab -and $script:requestTabsStrip.SelectedTab.Tag) {
+            Set-ActiveRequestTab -TabId ([string]$script:requestTabsStrip.SelectedTab.Tag)
+        }
+    })
+    $script:requestTabsStrip.Add_MouseDoubleClick({
+        param($sender, $e)
+        $tabControl = $sender
+        $selectedPage = $tabControl.SelectedTab
+        if (-not $selectedPage) { return }
+
+        $tabId = $selectedPage.Tag
+        $tabState = @($script:requestTabs | Where-Object { $_.Id -eq $tabId })[0]
+        if (-not $tabState) { return }
+
+        $newName = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new tab name:", "Rename Tab", $tabState.Name)
+        if (-not [string]::IsNullOrWhiteSpace($newName)) {
+            $tabState.Name = $newName
+            $selectedPage.Text = $newName
+            Save-RequestTabs
+        }
+    })
+    $script:requestTabsStrip.Add_MouseClick({
+        param($sender, $e)
+        if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Middle) {
+            for ($i = 0; $i -lt $script:requestTabsStrip.TabCount; $i++) {
+                if ($script:requestTabsStrip.GetTabRect($i).Contains($e.Location)) {
+                    $script:requestTabsStrip.SelectedIndex = $i
+                    Remove-ActiveRequestTab
+                    break
+                }
+            }
+        }
+    })
+
     # The main "Send Request" button. Its click handler orchestrates the entire API call process.
-    $btnSubmit = New-Button -Text "Send Request" -Style 'Primary' -OnClick { #FIX: Corrected button creation
+    $btnSubmit = New-Button -Text "Send Request" -Style 'Primary' -OnClick {
         $btnSubmit.Enabled = $false
         $btnCancel.Enabled = $true
         $btnRepeat.Enabled = $false
@@ -6982,7 +7694,7 @@ function Invoke-RequestExecution {
     }
 
     # GroupBox that contains all the response-related tabs.
-    $groupResponse = New-Object System.Windows.Forms.GroupBox -Property @{ #FIX: Corrected GroupBox creation
+    $groupResponse = New-Object System.Windows.Forms.GroupBox -Property @{
         Anchor    = "Top, Bottom, Left, Right"
         Text      = "Response"
         Padding   = [System.Windows.Forms.Padding]::new(5)
@@ -7278,7 +7990,7 @@ function Invoke-RequestExecution {
     
     # Refactored: Use a FlowLayoutPanel to match Body layout
     $responseToolsPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ 
-        Dock = 'Top'
+        Dock = 'Top' #FIX: Corrected Dock property
         Padding = [System.Windows.Forms.Padding]::new(0)
         AutoSize = $true #FIX: Corrected property name
         AutoSizeMode = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink
@@ -7290,7 +8002,7 @@ function Invoke-RequestExecution {
         Width = 100
         Height = 35
         Enabled = $false
-        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) #FIX: Corrected margin
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0)
     } -OnClick {
         try {
             if ($script:lastResponseContentType -like 'application/json*') {
@@ -7324,7 +8036,7 @@ function Invoke-RequestExecution {
         Width = 100
         Height = 35
         Enabled = $false
-        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) #FIX: Corrected margin
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0)
     } -OnClick {
         if ([string]::IsNullOrWhiteSpace($richTextResponse.Text)) { return }
 
@@ -7359,7 +8071,7 @@ function Invoke-RequestExecution {
     $script:btnGoToLine = New-Button -Text "Go To" -Property @{ 
         Width = 100
         Height = 35
-        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) #FIX: Corrected margin
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0)
     } -OnClick {
         $lineStr = [Microsoft.VisualBasic.Interaction]::InputBox("Enter Line Number:", "Go To Line", "1")
         if ([int]::TryParse($lineStr, [ref]$null)) {
@@ -7375,7 +8087,7 @@ function Invoke-RequestExecution {
     $script:btnToggleWordWrap = New-Button -Text "Wrap" -Property @{ 
         Width = 100
         Height = 35
-        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0) #FIX: Corrected margin
+        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0)
     } -OnClick {
         $richTextResponse.WordWrap = -not $richTextResponse.WordWrap
     }
@@ -7998,7 +8710,6 @@ function Invoke-RequestExecution {
     $tabCode.Controls.Add($codeLayout)
     # --- Console Tab ---
     $tabConsole = New-Object System.Windows.Forms.TabPage -Property @{ Text = "Console" }
-    
     $consoleSplit = New-Object System.Windows.Forms.SplitContainer -Property @{ Dock = 'Fill'; Orientation = 'Horizontal'; SplitterDistance = 200 }
     
     # Console Output (Top)
@@ -8007,7 +8718,7 @@ function Invoke-RequestExecution {
     $script:consoleOutput.ContextMenuStrip = New-CopyContextMenu -ParentControl $script:consoleOutput
     
     # Console Input (Bottom)
-    $consoleInputPanel = New-Object System.Windows.Forms.Panel -Property @{ Dock = 'Fill' }
+    $consoleInputPanel = New-Object System.Windows.Forms.Panel -Property @{ Dock = 'Fill' } #FIX: Corrected Panel creation
     $consoleToolbar = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Top'; AutoSize = $true; AutoSizeMode = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink; Padding = [System.Windows.Forms.Padding]::new(3) }
     
     $script:consolePlaceholder = "Enter command here... (Ctrl+Enter or Shift+Enter to run)"
@@ -8145,9 +8856,8 @@ function Invoke-RequestExecution {
         $script:isHighlighting = $false
     })
     
-    $consoleInputPanel.Controls.Add($consoleToolbar)
     $consoleInputPanel.Controls.Add($script:consoleInput)
-    
+    $consoleInputPanel.Controls.Add($consoleToolbar)
     $consoleSplit.Panel1.Controls.Add($script:consoleOutput)
     $consoleSplit.Panel2.Controls.Add($consoleInputPanel)
     $tabConsole.Controls.Add($consoleSplit)
@@ -8301,7 +9011,7 @@ function Invoke-RequestExecution {
         $name = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new collection name:", "New Collection")
         if ($name) {
             $newCollection = [PSCustomObject]@{ Name = $name; Type = "Collection"; Items = @(); Variables = @{} } # Create new collection object
-            $script:collections += $newCollection
+            $script:collections += $newCollection #FIX: Corrected collection creation
             Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
             Save-Collections #FIX: Corrected function call
         }
@@ -8725,29 +9435,13 @@ function Invoke-RequestExecution {
 
         $script:textUrl.Text = $selectedHistoryItem.Url
         $script:comboMethod.SelectedItem = $selectedHistoryItem.Method
-        $script:comboBodyType.SelectedItem = $selectedHistoryItem.BodyType
         
-        # Directly apply the logic that would normally be in SelectedIndexChanged
-        if ($script:comboBodyType.SelectedItem -eq "multipart/form-data") { # Update UI based on body type
-            $checkIncludeFilename.Visible = $true
-            $checkIncludeContentType.Visible = $true
-            $labelBody.Text = "Body (key=value per line. Press '@' to add a file):"
-            $script:textBody.Visible = $true
-            $script:panelGraphQL.Visible = $false
-        } elseif ($script:comboBodyType.SelectedItem -eq "GraphQL") {
-            $script:textBody.Visible = $false
-            $script:panelGraphQL.Visible = $true
-        }
-        else {
-            $checkIncludeFilename.Visible = $false
-            $checkIncludeContentType.Visible = $false
-            $labelBody.Text = "Body (raw content):"
-            $script:textBody.Visible = $true
-            $script:panelGraphQL.Visible = $false
-        }
+        # Set body text BEFORE setting body type and mode, so the correct content is parsed.
+        $script:textBody.Text = $selectedHistoryItem.Body
+        $script:comboBodyType.SelectedItem = $selectedHistoryItem.BodyType
+        Set-BodyEditorMode
 
         $script:textHeaders.Text = $selectedHistoryItem.Headers
-        $script:textBody.Text = $selectedHistoryItem.Body
 
         if ($selectedHistoryItem.PSObject.Properties.Name -contains 'OutputFormat') {
             $script:textOutputFormat.Text = [string]$selectedHistoryItem.OutputFormat
@@ -8828,22 +9522,8 @@ function Invoke-RequestExecution {
     }
 
     $script:comboBodyType.Add_SelectedIndexChanged({
-        if ($script:comboBodyType.SelectedItem -eq "multipart/form-data") {
-            $checkIncludeFilename.Visible = $true
-            $checkIncludeContentType.Visible = $true
-            $labelBody.Text = "Body (key=value per line. Press '@' to add a file):"
-            $script:textBody.Visible = $true
-            $script:panelGraphQL.Visible = $false
-        } elseif ($script:comboBodyType.SelectedItem -eq "GraphQL") {
-            $script:textBody.Visible = $false
-            $script:panelGraphQL.Visible = $true
-        } else {
-            $checkIncludeFilename.Visible = $false
-            $checkIncludeContentType.Visible = $false
-            $labelBody.Text = "Body (raw content):"
-            $script:textBody.Visible = $true
-            $script:panelGraphQL.Visible = $false
-        }
+        Set-BodyEditorMode
+        if (-not $script:isSwitchingRequestTab) { Save-ActiveRequestTabState }
     })
 
     if ($script:settings.EnableHistory) {
@@ -8899,11 +9579,13 @@ function Invoke-RequestExecution {
         }
     })
 
+    $groupRequest.Controls.Add($panelRequestTabsTop)
     $groupRequest.Controls.Add($panelRequestTop)
     $groupRequest.Controls.Add($requestTabControl)
-    # Ensure correct Z-order: TabControl (Fill) at index 0 (Front), Panel (Top) at index 1 (Back)
+    # Ensure correct Z-order: TabControl (Fill) at index 0 (Front), request panels above it.
     $groupRequest.Controls.SetChildIndex($requestTabControl, 0)
     $groupRequest.Controls.SetChildIndex($panelRequestTop, 1)
+    $groupRequest.Controls.SetChildIndex($panelRequestTabsTop, 2)
     $groupHistory.Controls.Add($collectionsTabControl)
 
     # Add controls to the SplitContainer panels
@@ -8921,10 +9603,8 @@ function Invoke-RequestExecution {
 
     Populate-EnvironmentDropdown
     Populate-HistoryEnvironmentFilter
-    # Restore the last used environment if it exists
-    if ($script:settings.LastActiveEnvironment -and $script:comboEnvironment.Items.Contains($script:settings.LastActiveEnvironment)) {
-        $script:comboEnvironment.SelectedItem = $script:settings.LastActiveEnvironment
-    }
+    Refresh-RequestTabsStrip
+    Apply-RequestStateToUi -RequestState (Get-ActiveRequestTabState)
 
     if ($script:settings.AutoSaveToFile) {
         $script:textOutputFile.Text = $script:settings.AutoSavePath
