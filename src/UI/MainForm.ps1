@@ -517,7 +517,30 @@ function New-APIForm {
                     $script:collectionRunDelayTimer.Start()
                     return # Exit tick to wait for delay
                 } else {
-                    Complete-CollectionRun -Summary "Run Complete." -EnableRetry $true
+                    if ($script:collectionRunData -and $script:collectionRunData.Count -gt 0 -and $script:collectionRunDataIndex -lt ($script:collectionRunData.Count - 1)) {
+                        $script:collectionRunDataIndex++
+                        $script:activeCollectionVariables = @{}
+                        $nextDataRow = $script:collectionRunData[$script:collectionRunDataIndex]
+                        foreach ($prop in $nextDataRow.PSObject.Properties) {
+                            $script:activeCollectionVariables[$prop.Name] = $prop.Value
+                        }
+                        
+                        # Re-enqueue rows
+                        foreach ($row in $script:collectionRunnerGrid.Rows) {
+                            if ($row.Cells["Run"].Value -and $row.Cells["Status"].Value -ne "Invalid") {
+                                $script:collectionRunQueue.Enqueue($row)
+                                $row.Cells["Status"].Value = "Queued"
+                            }
+                        }
+                        
+                        $script:collectionRunTotal += $script:collectionRunQueue.Count
+                        $script:collectionRunnerProgress.Maximum = [Math]::Max(1, $script:collectionRunTotal)
+                        
+                        # Trigger the next loop
+                        Process-NextCollectionRequest -IsSuccess $true
+                    } else {
+                        Complete-CollectionRun -Summary "Run Complete." -EnableRetry $true
+                    }
                 }
             }
 
@@ -1131,7 +1154,17 @@ function Invoke-RequestExecution {
         if ($script:settings -and $script:settings['CollectionRunnerStopOnFail']) { $chkStopOnFail.Checked = $script:settings['CollectionRunnerStopOnFail'] }
         $chkSelectAll = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Select All"; Checked = $true; AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(15, 3, 0, 0) }
         
-        $settingsPanel.Controls.AddRange(@($lblDelay, $numDelay, $chkStopOnFail, $chkSelectAll))
+        $btnDataFile = New-Button -Text "Data File..." -Property @{ Width = 90; Margin = [System.Windows.Forms.Padding]::new(15, 0, 0, 0) }
+        $txtDataFile = New-TextBox -Property @{ Width = 150; ReadOnly = $true; Margin = [System.Windows.Forms.Padding]::new(5, 3, 0, 0) }
+        $btnDataFile.Add_Click({
+            $ofd = New-Object System.Windows.Forms.OpenFileDialog
+            $ofd.Filter = "Data Files (*.csv;*.json)|*.csv;*.json|All Files (*.*)|*.*"
+            if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                $txtDataFile.Text = $ofd.FileName
+            }
+        })
+
+        $settingsPanel.Controls.AddRange(@($lblDelay, $numDelay, $chkStopOnFail, $chkSelectAll, $btnDataFile, $txtDataFile))
 
         $topPanel.Controls.Add($summaryLabel, 0, 0)
         $topPanel.Controls.Add($settingsPanel, 1, 0)
@@ -1185,6 +1218,7 @@ function Invoke-RequestExecution {
             numDelay = $numDelay
             chkStopOnFail = $chkStopOnFail
             chkSelectAll = $chkSelectAll
+            txtDataFile = $txtDataFile
         }
         $btnStart.Tag = $runnerState
         $btnRetry.Tag = $runnerState
@@ -1317,6 +1351,27 @@ function Invoke-RequestExecution {
             # Reset state
             if ($script:collectionRunQueue -eq $null) { $script:collectionRunQueue = New-Object System.Collections.Queue }
             $script:collectionRunQueue.Clear()
+
+            $script:collectionRunData = @()
+            $script:collectionRunDataIndex = 0
+            if ($state.txtDataFile -and $state.txtDataFile.Text -and (Test-Path $state.txtDataFile.Text)) {
+                try {
+                    if ($state.txtDataFile.Text -match '\.json$') {
+                        $script:collectionRunData = Get-Content $state.txtDataFile.Text -Raw | ConvertFrom-Json
+                    } elseif ($state.txtDataFile.Text -match '\.csv$') {
+                        $script:collectionRunData = Import-Csv $state.txtDataFile.Text
+                    }
+                    if ($script:collectionRunData.Count -gt 0) {
+                        $script:activeCollectionVariables = @{}
+                        $firstRow = $script:collectionRunData[0]
+                        foreach ($prop in $firstRow.PSObject.Properties) {
+                            $script:activeCollectionVariables[$prop.Name] = $prop.Value
+                        }
+                    }
+                } catch {
+                    [System.Windows.Forms.MessageBox]::Show("Failed to load Data File: $($_.Exception.Message)", "Data Error", "OK", "Warning")
+                }
+            }
             
             foreach ($row in $state.grid.Rows) {
                 $requestObject = Get-RequestObjectFromItem -Item $row.Tag
@@ -4936,7 +4991,24 @@ function Invoke-RequestExecution {
         }
     })
 
-    $collectionsContextMenu.Items.AddRange(@($addCollectionMenuItem, $addFolderMenuItem, $saveRequestMenuItem, $editCollectionVarsMenuItem, (New-Object System.Windows.Forms.ToolStripSeparator), $runCollectionMenuItem, $renameMenuItem, $deleteMenuItem, $exportFolderMenuItem))
+    $importOpenApiMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Import OpenAPI Spec...", $null, {
+        $ofd = New-Object System.Windows.Forms.OpenFileDialog
+        $ofd.Filter = "JSON/YAML Files (*.json;*.yaml;*.yml)|*.json;*.yaml;*.yml|All Files (*.*)|*.*"
+        $ofd.Title = "Import OpenAPI Specification"
+        if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            try {
+                $newFolder = Parse-OpenApiSpec -FilePath $ofd.FileName
+                $script:collections += $newFolder
+                Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
+                Save-Collections
+                [System.Windows.Forms.MessageBox]::Show("OpenAPI specification imported successfully.", "Import Success", "OK", "Information")
+            } catch {
+                [System.Windows.Forms.MessageBox]::Show("Failed to import OpenAPI Spec: $($_.Exception.Message)", "Import Error", "OK", "Error")
+            }
+        }
+    })
+
+    $collectionsContextMenu.Items.AddRange(@($addCollectionMenuItem, $addFolderMenuItem, $saveRequestMenuItem, $editCollectionVarsMenuItem, (New-Object System.Windows.Forms.ToolStripSeparator), $runCollectionMenuItem, $importOpenApiMenuItem, $renameMenuItem, $deleteMenuItem, $exportFolderMenuItem))
     $treeViewCollections.ContextMenuStrip = $collectionsContextMenu
 
     $collectionsContextMenu.Add_Opening({
@@ -4948,6 +5020,7 @@ function Invoke-RequestExecution {
         $deleteMenuItem.Enabled = $false
         $runCollectionMenuItem.Enabled = $false
         $exportFolderMenuItem.Enabled = $false
+        $importOpenApiMenuItem.Enabled = $true # Always enabled so users can import into root
 
         if ($selectedNode) {
             $itemType = $selectedNode.Tag.Type

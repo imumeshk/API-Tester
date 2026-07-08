@@ -15,6 +15,7 @@ if (Test-Path $outFile) {
 
 # The specific order is crucial to ensure functions are defined before they are called
 $filesToMerge = @(
+    "Parameters.ps1"
     "Config\Constants.ps1"
     
     "Utils\Helpers.ps1"
@@ -26,6 +27,7 @@ $filesToMerge = @(
     "Core\Auth.ps1"
     "Core\HttpClient.ps1"
     "Core\TestRunner.ps1"
+    "Core\OpenApiParser.ps1"
     "Core\Updater.ps1"
     
     # Dialogs can be loaded in any order as long as they are before MainForm
