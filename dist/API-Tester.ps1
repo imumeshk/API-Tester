@@ -64,6 +64,7 @@ $environmentsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_enviro
 $globalsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_globals.json"
 $collectionsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_collections.json"
 $requestTabsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_request_tabs.json"
+$draftsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_drafts.json"
 $requestTemplatesFilePath = Join-Path -Path $configDir -ChildPath "api_tester_request_templates.json"
 $monitorsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_monitors.json"
 $monitorLogFilePath = Join-Path -Path $historyDir -ChildPath "api_tester_monitor_log.csv"
@@ -103,17 +104,36 @@ catch {
 
 #region UI Theme & Icons
 
-$script:Theme = @{
-    FormBackground      = [System.Drawing.ColorTranslator]::FromHtml("#f0f2f5")
-    GroupBackground     = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-    TextColor           = [System.Drawing.ColorTranslator]::FromHtml("#1f1f1f")
-    PrimaryButton       = [System.Drawing.ColorTranslator]::FromHtml("#0078d4")
-    PrimaryButtonText   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-    SecondaryButton     = [System.Drawing.ColorTranslator]::FromHtml("#e1e1e1")
-    SecondaryButtonText = [System.Drawing.ColorTranslator]::FromHtml("#1f1f1f")
-    DangerButton        = [System.Drawing.ColorTranslator]::FromHtml("#d93025")
-    DangerButtonText    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$script:Themes = @{
+    Light = @{
+        FormBackground      = [System.Drawing.ColorTranslator]::FromHtml("#f0f2f5")
+        GroupBackground     = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        TextColor           = [System.Drawing.ColorTranslator]::FromHtml("#1f1f1f")
+        PrimaryButton       = [System.Drawing.ColorTranslator]::FromHtml("#0078d4")
+        PrimaryButtonText   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        SecondaryButton     = [System.Drawing.ColorTranslator]::FromHtml("#e1e1e1")
+        SecondaryButtonText = [System.Drawing.ColorTranslator]::FromHtml("#1f1f1f")
+        DangerButton        = [System.Drawing.ColorTranslator]::FromHtml("#d93025")
+        DangerButtonText    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        TextBoxBackground   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        GridBackground      = [System.Drawing.ColorTranslator]::FromHtml("#f9f9f9")
+    }
+    Dark = @{
+        FormBackground      = [System.Drawing.ColorTranslator]::FromHtml("#1e1e1e")
+        GroupBackground     = [System.Drawing.ColorTranslator]::FromHtml("#252526")
+        TextColor           = [System.Drawing.ColorTranslator]::FromHtml("#d4d4d4")
+        PrimaryButton       = [System.Drawing.ColorTranslator]::FromHtml("#0078d4")
+        PrimaryButtonText   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        SecondaryButton     = [System.Drawing.ColorTranslator]::FromHtml("#333333")
+        SecondaryButtonText = [System.Drawing.ColorTranslator]::FromHtml("#d4d4d4")
+        DangerButton        = [System.Drawing.ColorTranslator]::FromHtml("#d93025")
+        DangerButtonText    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        TextBoxBackground   = [System.Drawing.ColorTranslator]::FromHtml("#1e1e1e")
+        GridBackground      = [System.Drawing.ColorTranslator]::FromHtml("#2d2d30")
+    }
 }
+
+$script:Theme = $script:Themes["Light"]
 
 #endregion
 
@@ -183,6 +203,66 @@ function Unprotect-String {
 }
 
 # Sends an email using SMTP XOAUTH2 (required for Gmail/Outlook Modern Auth).
+
+function Set-AppTheme {
+    param([System.Windows.Forms.Control]$Form)
+    if (-not $Form) { return }
+    
+    $themeName = if ($script:settings.AppTheme) { $script:settings.AppTheme } else { "Light" }
+    $script:Theme = $script:Themes[$themeName]
+    
+    if (-not $script:Theme) { return }
+
+    # Function to apply theme recursively
+    function Apply-ThemeToControl {
+        param([System.Windows.Forms.Control]$Control)
+        if (-not $Control) { return }
+        
+        $type = $Control.GetType().Name
+        if ($type -match "Button") {
+            if ($Control.Tag -eq "Primary") {
+                $Control.BackColor = $script:Theme.PrimaryButton
+                $Control.ForeColor = $script:Theme.PrimaryButtonText
+            } elseif ($Control.Tag -eq "Danger") {
+                $Control.BackColor = $script:Theme.DangerButton
+                $Control.ForeColor = $script:Theme.DangerButtonText
+            } else {
+                $Control.BackColor = $script:Theme.SecondaryButton
+                $Control.ForeColor = $script:Theme.SecondaryButtonText
+            }
+        } elseif ($type -match "TextBox|RichTextBox|ComboBox|ListBox|TreeView") {
+            $Control.BackColor = $script:Theme.TextBoxBackground
+            $Control.ForeColor = $script:Theme.TextColor
+        } elseif ($type -match "DataGridView") {
+            $Control.BackgroundColor = $script:Theme.GridBackground
+            $Control.DefaultCellStyle.BackColor = $script:Theme.TextBoxBackground
+            $Control.DefaultCellStyle.ForeColor = $script:Theme.TextColor
+            $Control.ColumnHeadersDefaultCellStyle.BackColor = $script:Theme.SecondaryButton
+            $Control.ColumnHeadersDefaultCellStyle.ForeColor = $script:Theme.TextColor
+        } else {
+            # Forms, GroupBoxes, Panels, Labels
+            if ($type -eq "Form") { 
+                $Control.BackColor = $script:Theme.FormBackground 
+            } elseif ($type -match "GroupBox") { 
+                $Control.BackColor = $script:Theme.GroupBackground 
+            }
+            if ($type -notmatch "TabControl") {
+                $Control.ForeColor = $script:Theme.TextColor
+            }
+        }
+
+        # Tab pages need their own back color explicitly set in some OS versions
+        if ($type -eq "TabPage") {
+            $Control.BackColor = $script:Theme.FormBackground
+        }
+
+        foreach ($child in $Control.Controls) {
+            Apply-ThemeToControl -Control $child
+        }
+    }
+
+    Apply-ThemeToControl -Control $Form
+}
 
 function Get-JsonPathValue {
     param(
@@ -1074,6 +1154,7 @@ $script:defaultSettings = @{
     ProxyPass = ""
     CollectionRunnerDelay = 0
     CollectionRunnerStopOnFail = $false
+    AppTheme = "Light"
 }
 
 function Get-RequestObjectFromItem {
@@ -1147,6 +1228,33 @@ function Save-Settings {
 }
 
 # Formats a byte count into a human-readable string (e.g., KB, MB, GB).
+
+function Load-DraftState {
+    if (Test-Path $draftsFilePath) {
+        try {
+            $json = Get-Content -Path $draftsFilePath -Raw
+            if (-not [string]::IsNullOrWhiteSpace($json)) {
+                $drafts = $json | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if ($drafts -and $drafts -isnot [array]) { $drafts = @($drafts) }
+                return $drafts
+            }
+        } catch {
+            Write-Log "Could not load drafts file: $($_.Exception.Message)" -Level Info
+        }
+    }
+    return $null
+}
+
+function Save-DraftState {
+    try {
+        if (-not $script:requestTabs) { return }
+        # Note: Do not overwrite the main file heavily to avoid I/O bottlenecks. 
+        # This is a silent background save.
+        $script:requestTabs | ConvertTo-Json -Depth 20 | Out-File -FilePath $draftsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
+    } catch {
+        Write-Log "Failed to save drafts: $($_.Exception.Message)" -Level Debug
+    }
+}
 
 function Substitute-Variables {
     param ([string]$InputString)
@@ -3898,8 +4006,15 @@ function Show-SettingsWindow {
     $checkShowResponseHeaders = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Response Headers Tab"; Checked = $script:settings.ShowResponseHeaders; AutoSize = $true }
     $checkShowCurl = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Code Snippets Tab"; Checked = $script:settings.ShowCurl; AutoSize = $true }
     $checkShowConsole = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Console Tab"; Checked = $script:settings.ShowConsoleTab; AutoSize = $true }
+    
+    $panelTheme = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ AutoSize = $true; FlowDirection = 'LeftToRight'; Margin = [System.Windows.Forms.Padding]::new(0, 10, 0, 0) }
+    $labelTheme = New-Object System.Windows.Forms.Label -Property @{ Text = "App Theme:"; AutoSize = $true; Anchor = 'Left'; TextAlign = 'MiddleLeft'; Margin = [System.Windows.Forms.Padding]::new(0, 5, 5, 0) }
+    $comboTheme = New-Object System.Windows.Forms.ComboBox -Property @{ DropDownStyle = 'DropDownList'; Width = 120 }
+    $comboTheme.Items.AddRange(@("Light", "Dark"))
+    if ($script:settings.AppTheme) { $comboTheme.SelectedItem = $script:settings.AppTheme } else { $comboTheme.SelectedItem = "Light" }
+    $panelTheme.Controls.AddRange(@($labelTheme, $comboTheme))
 
-    $panelsTable.Controls.AddRange(@($checkShowEnvironment, $checkShowHistory, $checkShowRequestHeaders, $checkShowAuth, $checkShowPreRequest, $checkShowTests, $checkShowTestResults, $checkShowResponse, $checkShowJsonTree, $checkShowResponseHeaders, $checkShowCurl, $checkShowConsole))
+    $panelsTable.Controls.AddRange(@($checkShowEnvironment, $checkShowHistory, $checkShowRequestHeaders, $checkShowAuth, $checkShowPreRequest, $checkShowTests, $checkShowTestResults, $checkShowResponse, $checkShowJsonTree, $checkShowResponseHeaders, $checkShowCurl, $checkShowConsole, $panelTheme))
     $groupPanels.Controls.Add($panelsTable)
 
     # --- Group 2: Configuration (FIXED CUTOFFS) ---
@@ -4142,7 +4257,15 @@ function Show-SettingsWindow {
         $script:settings.ResponseFontSize = $numFontSize.Value
         $script:settings.EnableRepeatRequest = $checkEnableRepeat.Checked
         $script:settings.MaxRepeatCount = [int]$numRepeatCount.Value
+        
+        $oldTheme = $script:settings.AppTheme
+        $script:settings.AppTheme = $comboTheme.SelectedItem
+        
         Save-Settings
+        
+        if ($oldTheme -ne $script:settings.AppTheme) {
+            Set-AppTheme -Form $parentForm
+        }
         $settingsForm.DialogResult = [System.Windows.Forms.DialogResult]::OK
         $settingsForm.Close()
     }
@@ -4956,6 +5079,13 @@ function Invoke-RequestExecution {
     # Substitute environment variables into all relevant fields.
     $script:activeEnvironment = $script:comboEnvironment.SelectedItem
 
+    $ApiRequest = @{
+        Method = if ($script:comboMethod.SelectedItem) { [string]$script:comboMethod.SelectedItem } else { "GET" }
+        Url = $script:textUrl.Text
+        Headers = $script:textHeaders.Text
+        Body = $script:textBody.Text
+    }
+
     # --- Pre-request Script Execution ---
     if ($script:textPreRequest -and -not [string]::IsNullOrWhiteSpace($script:textPreRequest.Text)) {
         try {
@@ -4964,7 +5094,15 @@ function Invoke-RequestExecution {
                 $Environment = $script:environments[$script:activeEnvironment]
             } else { $Environment = @{} }
             
+            # Expose $ApiRequest to the script block. It runs in the current scope (-NoNewScope)
             Invoke-Command -ScriptBlock ([scriptblock]::Create($script:textPreRequest.Text)) -NoNewScope
+            
+            # Map any modifications back to the UI
+            if ($script:comboMethod.Items.Contains($ApiRequest.Method)) { $script:comboMethod.SelectedItem = $ApiRequest.Method }
+            $script:textUrl.Text = $ApiRequest.Url
+            $script:textHeaders.Text = $ApiRequest.Headers
+            $script:textBody.Text = $ApiRequest.Body
+
             Write-Log "Pre-request script executed successfully."
         } catch {
             Write-Log "Pre-request script failed: $($_.Exception.Message)"
@@ -5759,6 +5897,15 @@ function Invoke-RequestExecution {
     Load-Settings
     Load-RequestTemplates
     Load-RequestTabs
+    $drafts = Load-DraftState
+    if ($drafts) {
+        $msgResult = [System.Windows.Forms.MessageBox]::Show("An unsaved session (draft) was found. Would you like to restore it?", "Restore Session", 'YesNo', 'Question')
+        if ($msgResult -eq 'Yes') {
+            $script:requestTabs = $drafts
+            $script:activeRequestTabId = $script:requestTabs[0].Id
+        }
+        if (Test-Path $draftsFilePath) { Remove-Item $draftsFilePath -Force }
+    }
     Load-Globals
     Load-Environments
     Load-Monitors
@@ -5816,6 +5963,10 @@ function Invoke-RequestExecution {
     $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
     $notifyIcon.Visible = $true
     $notifyIcon.Text = "API Tester Monitor"
+
+    $script:autoSaveTimer = New-Object System.Windows.Forms.Timer
+    $script:autoSaveTimer.Interval = 30000 # Save every 30 seconds
+    $script:autoSaveTimer.Add_Tick({ Save-DraftState })
 
     $monitorTimer = New-Object System.Windows.Forms.Timer
     $monitorTimer.Interval = 1000 # Tick every second
@@ -5963,6 +6114,7 @@ function Invoke-RequestExecution {
         }
     })
     $monitorTimer.Start()
+    $script:autoSaveTimer.Start()
 
     # --- Import/Export Workspace ---
     $importCurlMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Import cURL...", $null, {
@@ -7960,6 +8112,41 @@ function Invoke-RequestExecution {
                 $sb.AppendLine("print(response.text)") | Out-Null
                 return $sb.ToString()
             }
+            "C#" {
+                $sb.AppendLine("var client = new HttpClient();") | Out-Null
+                $sb.AppendLine("var request = new HttpRequestMessage(HttpMethod.$([cultureinfo]::CurrentCulture.TextInfo.ToTitleCase($method.ToLower())), `"$url`");") | Out-Null
+                
+                foreach ($key in $headers.Keys) {
+                    if ($key -ne "Content-Type") {
+                        $sb.AppendLine("request.Headers.Add(`"$key`", `"$($headers[$key])`");") | Out-Null
+                    }
+                }
+                
+                if ($bodyRaw) {
+                    if ($bodyType -eq "multipart/form-data") {
+                        $sb.AppendLine("var content = new MultipartFormDataContent();") | Out-Null
+                        foreach ($line in $bodyRaw -split "`n" | Where-Object { $_ -match '\S' }) {
+                            if ($line -match '^\s*([^=]+?)\s*=\s*(.*)') {
+                                $key = $matches[1].Trim()
+                                $val = $matches[2].Trim()
+                                if ($val -match '^@') {
+                                    $sb.AppendLine("content.Add(new StreamContent(File.OpenRead(`"$($val.Substring(1))`")), `"$key`", `"$($val.Substring(1))`");") | Out-Null
+                                } else {
+                                    $sb.AppendLine("content.Add(new StringContent(`"$val`"), `"$key`");") | Out-Null
+                                }
+                            }
+                        }
+                    } else {
+                        $sb.AppendLine("var content = new StringContent(`"$($bodyRaw -replace '"', '\"' -replace '`n', '\n' -replace '`r', '')`", null, `"$bodyType`");") | Out-Null
+                    }
+                    $sb.AppendLine("request.Content = content;") | Out-Null
+                }
+                
+                $sb.AppendLine("var response = await client.SendAsync(request);") | Out-Null
+                $sb.AppendLine("response.EnsureSuccessStatusCode();") | Out-Null
+                $sb.AppendLine("Console.WriteLine(await response.Content.ReadAsStringAsync());") | Out-Null
+                return $sb.ToString()
+            }
             "JavaScript" {
                 $sb.AppendLine("const myHeaders = new Headers();") | Out-Null
                 foreach ($key in $headers.Keys) {
@@ -9500,8 +9687,26 @@ function Invoke-RequestExecution {
             Write-Log "Copied history item as PowerShell command to clipboard."
         }
     })
+    $copyAsPythonMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Copy as Python", $null, {
+        $selectedItem = $listHistory.SelectedItem
+        if ($selectedItem) {
+            $selectedHistoryItem = $selectedItem.Value
+            $pyCommand = Generate-CodeSnippet -RequestItem $selectedHistoryItem -Language "Python"
+            [System.Windows.Forms.Clipboard]::SetText($pyCommand)
+            Write-Log "Copied history item as Python snippet to clipboard."
+        }
+    })
+    $copyAsCSharpMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Copy as C#", $null, {
+        $selectedItem = $listHistory.SelectedItem
+        if ($selectedItem) {
+            $selectedHistoryItem = $selectedItem.Value
+            $csCommand = Generate-CodeSnippet -RequestItem $selectedHistoryItem -Language "C#"
+            [System.Windows.Forms.Clipboard]::SetText($csCommand)
+            Write-Log "Copied history item as C# snippet to clipboard."
+        }
+    })
 
-    $historyContextMenu.Items.AddRange(@($duplicateHistoryItem, $copyAsCurlMenuItem, $copyAsPSMenuItem, $deleteHistoryItem))
+    $historyContextMenu.Items.AddRange(@($duplicateHistoryItem, $copyAsCurlMenuItem, $copyAsPSMenuItem, $copyAsPythonMenuItem, $copyAsCSharpMenuItem, $deleteHistoryItem))
     $listHistory.ContextMenuStrip = $historyContextMenu
 
     $listHistory.Add_MouseDown({
@@ -9767,6 +9972,11 @@ function Invoke-RequestExecution {
             try { $monitorTimer.Dispose() } catch {}
             $monitorTimer = $null
         }
+        if ($script:autoSaveTimer) {
+            try { $script:autoSaveTimer.Stop() } catch {}
+            try { $script:autoSaveTimer.Dispose() } catch {}
+            $script:autoSaveTimer = $null
+        }
         # Hide undocked forms so they do not briefly reactivate the owner while the main form
         # is closing. They will be disposed after shutdown completes.
         if ($script:historyForm -and -not $script:historyForm.IsDisposed) {
@@ -9789,6 +9999,8 @@ function Invoke-RequestExecution {
             $script:monitorPool = $null
         }
         # Perform cleanup for background jobs and timers
+        if (Test-Path $draftsFilePath) { Remove-Item $draftsFilePath -Force -ErrorAction SilentlyContinue }
+        
         # (The cleanup after Application::Run is still there, but this is more robust)
         # Allow the main form to close
         $e.Cancel = $false
@@ -9810,6 +10022,10 @@ function Invoke-RequestExecution {
             $script:responseForm = $null
         }
     })
+    
+    # Apply selected Theme before displaying the form
+    Set-AppTheme -Form $form
+    
     $form.ShowDialog() | Out-Null
     # Perform cleanup after the main form is closed.
     if ($script:currentPowerShell) { $script:currentPowerShell.Dispose() }

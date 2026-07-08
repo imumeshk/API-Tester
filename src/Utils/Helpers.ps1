@@ -60,3 +60,63 @@ function Unprotect-String {
 }
 
 # Sends an email using SMTP XOAUTH2 (required for Gmail/Outlook Modern Auth).
+
+function Set-AppTheme {
+    param([System.Windows.Forms.Control]$Form)
+    if (-not $Form) { return }
+    
+    $themeName = if ($script:settings.AppTheme) { $script:settings.AppTheme } else { "Light" }
+    $script:Theme = $script:Themes[$themeName]
+    
+    if (-not $script:Theme) { return }
+
+    # Function to apply theme recursively
+    function Apply-ThemeToControl {
+        param([System.Windows.Forms.Control]$Control)
+        if (-not $Control) { return }
+        
+        $type = $Control.GetType().Name
+        if ($type -match "Button") {
+            if ($Control.Tag -eq "Primary") {
+                $Control.BackColor = $script:Theme.PrimaryButton
+                $Control.ForeColor = $script:Theme.PrimaryButtonText
+            } elseif ($Control.Tag -eq "Danger") {
+                $Control.BackColor = $script:Theme.DangerButton
+                $Control.ForeColor = $script:Theme.DangerButtonText
+            } else {
+                $Control.BackColor = $script:Theme.SecondaryButton
+                $Control.ForeColor = $script:Theme.SecondaryButtonText
+            }
+        } elseif ($type -match "TextBox|RichTextBox|ComboBox|ListBox|TreeView") {
+            $Control.BackColor = $script:Theme.TextBoxBackground
+            $Control.ForeColor = $script:Theme.TextColor
+        } elseif ($type -match "DataGridView") {
+            $Control.BackgroundColor = $script:Theme.GridBackground
+            $Control.DefaultCellStyle.BackColor = $script:Theme.TextBoxBackground
+            $Control.DefaultCellStyle.ForeColor = $script:Theme.TextColor
+            $Control.ColumnHeadersDefaultCellStyle.BackColor = $script:Theme.SecondaryButton
+            $Control.ColumnHeadersDefaultCellStyle.ForeColor = $script:Theme.TextColor
+        } else {
+            # Forms, GroupBoxes, Panels, Labels
+            if ($type -eq "Form") { 
+                $Control.BackColor = $script:Theme.FormBackground 
+            } elseif ($type -match "GroupBox") { 
+                $Control.BackColor = $script:Theme.GroupBackground 
+            }
+            if ($type -notmatch "TabControl") {
+                $Control.ForeColor = $script:Theme.TextColor
+            }
+        }
+
+        # Tab pages need their own back color explicitly set in some OS versions
+        if ($type -eq "TabPage") {
+            $Control.BackColor = $script:Theme.FormBackground
+        }
+
+        foreach ($child in $Control.Controls) {
+            Apply-ThemeToControl -Control $child
+        }
+    }
+
+    Apply-ThemeToControl -Control $Form
+}

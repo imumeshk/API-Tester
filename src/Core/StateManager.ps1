@@ -400,6 +400,7 @@ $script:defaultSettings = @{
     ProxyPass = ""
     CollectionRunnerDelay = 0
     CollectionRunnerStopOnFail = $false
+    AppTheme = "Light"
 }
 
 function Get-RequestObjectFromItem {
@@ -473,3 +474,30 @@ function Save-Settings {
 }
 
 # Formats a byte count into a human-readable string (e.g., KB, MB, GB).
+
+function Load-DraftState {
+    if (Test-Path $draftsFilePath) {
+        try {
+            $json = Get-Content -Path $draftsFilePath -Raw
+            if (-not [string]::IsNullOrWhiteSpace($json)) {
+                $drafts = $json | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if ($drafts -and $drafts -isnot [array]) { $drafts = @($drafts) }
+                return $drafts
+            }
+        } catch {
+            Write-Log "Could not load drafts file: $($_.Exception.Message)" -Level Info
+        }
+    }
+    return $null
+}
+
+function Save-DraftState {
+    try {
+        if (-not $script:requestTabs) { return }
+        # Note: Do not overwrite the main file heavily to avoid I/O bottlenecks. 
+        # This is a silent background save.
+        $script:requestTabs | ConvertTo-Json -Depth 20 | Out-File -FilePath $draftsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
+    } catch {
+        Write-Log "Failed to save drafts: $($_.Exception.Message)" -Level Debug
+    }
+}

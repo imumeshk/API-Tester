@@ -602,6 +602,13 @@ function Invoke-RequestExecution {
     # Substitute environment variables into all relevant fields.
     $script:activeEnvironment = $script:comboEnvironment.SelectedItem
 
+    $ApiRequest = @{
+        Method = if ($script:comboMethod.SelectedItem) { [string]$script:comboMethod.SelectedItem } else { "GET" }
+        Url = $script:textUrl.Text
+        Headers = $script:textHeaders.Text
+        Body = $script:textBody.Text
+    }
+
     # --- Pre-request Script Execution ---
     if ($script:textPreRequest -and -not [string]::IsNullOrWhiteSpace($script:textPreRequest.Text)) {
         try {
@@ -610,7 +617,15 @@ function Invoke-RequestExecution {
                 $Environment = $script:environments[$script:activeEnvironment]
             } else { $Environment = @{} }
             
+            # Expose $ApiRequest to the script block. It runs in the current scope (-NoNewScope)
             Invoke-Command -ScriptBlock ([scriptblock]::Create($script:textPreRequest.Text)) -NoNewScope
+            
+            # Map any modifications back to the UI
+            if ($script:comboMethod.Items.Contains($ApiRequest.Method)) { $script:comboMethod.SelectedItem = $ApiRequest.Method }
+            $script:textUrl.Text = $ApiRequest.Url
+            $script:textHeaders.Text = $ApiRequest.Headers
+            $script:textBody.Text = $ApiRequest.Body
+
             Write-Log "Pre-request script executed successfully."
         } catch {
             Write-Log "Pre-request script failed: $($_.Exception.Message)"
@@ -1405,6 +1420,15 @@ function Invoke-RequestExecution {
     Load-Settings
     Load-RequestTemplates
     Load-RequestTabs
+    $drafts = Load-DraftState
+    if ($drafts) {
+        $msgResult = [System.Windows.Forms.MessageBox]::Show("An unsaved session (draft) was found. Would you like to restore it?", "Restore Session", 'YesNo', 'Question')
+        if ($msgResult -eq 'Yes') {
+            $script:requestTabs = $drafts
+            $script:activeRequestTabId = $script:requestTabs[0].Id
+        }
+        if (Test-Path $draftsFilePath) { Remove-Item $draftsFilePath -Force }
+    }
     Load-Globals
     Load-Environments
     Load-Monitors
@@ -1462,6 +1486,10 @@ function Invoke-RequestExecution {
     $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
     $notifyIcon.Visible = $true
     $notifyIcon.Text = "API Tester Monitor"
+
+    $script:autoSaveTimer = New-Object System.Windows.Forms.Timer
+    $script:autoSaveTimer.Interval = 30000 # Save every 30 seconds
+    $script:autoSaveTimer.Add_Tick({ Save-DraftState })
 
     $monitorTimer = New-Object System.Windows.Forms.Timer
     $monitorTimer.Interval = 1000 # Tick every second
@@ -1609,6 +1637,7 @@ function Invoke-RequestExecution {
         }
     })
     $monitorTimer.Start()
+    $script:autoSaveTimer.Start()
 
     # --- Import/Export Workspace ---
     $importCurlMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Import cURL...", $null, {
@@ -3606,6 +3635,41 @@ function Invoke-RequestExecution {
                 $sb.AppendLine("print(response.text)") | Out-Null
                 return $sb.ToString()
             }
+            "C#" {
+                $sb.AppendLine("var client = new HttpClient();") | Out-Null
+                $sb.AppendLine("var request = new HttpRequestMessage(HttpMethod.$([cultureinfo]::CurrentCulture.TextInfo.ToTitleCase($method.ToLower())), `"$url`");") | Out-Null
+                
+                foreach ($key in $headers.Keys) {
+                    if ($key -ne "Content-Type") {
+                        $sb.AppendLine("request.Headers.Add(`"$key`", `"$($headers[$key])`");") | Out-Null
+                    }
+                }
+                
+                if ($bodyRaw) {
+                    if ($bodyType -eq "multipart/form-data") {
+                        $sb.AppendLine("var content = new MultipartFormDataContent();") | Out-Null
+                        foreach ($line in $bodyRaw -split "`n" | Where-Object { $_ -match '\S' }) {
+                            if ($line -match '^\s*([^=]+?)\s*=\s*(.*)') {
+                                $key = $matches[1].Trim()
+                                $val = $matches[2].Trim()
+                                if ($val -match '^@') {
+                                    $sb.AppendLine("content.Add(new StreamContent(File.OpenRead(`"$($val.Substring(1))`")), `"$key`", `"$($val.Substring(1))`");") | Out-Null
+                                } else {
+                                    $sb.AppendLine("content.Add(new StringContent(`"$val`"), `"$key`");") | Out-Null
+                                }
+                            }
+                        }
+                    } else {
+                        $sb.AppendLine("var content = new StringContent(`"$($bodyRaw -replace '"', '\"' -replace '`n', '\n' -replace '`r', '')`", null, `"$bodyType`");") | Out-Null
+                    }
+                    $sb.AppendLine("request.Content = content;") | Out-Null
+                }
+                
+                $sb.AppendLine("var response = await client.SendAsync(request);") | Out-Null
+                $sb.AppendLine("response.EnsureSuccessStatusCode();") | Out-Null
+                $sb.AppendLine("Console.WriteLine(await response.Content.ReadAsStringAsync());") | Out-Null
+                return $sb.ToString()
+            }
             "JavaScript" {
                 $sb.AppendLine("const myHeaders = new Headers();") | Out-Null
                 foreach ($key in $headers.Keys) {
@@ -5146,8 +5210,26 @@ function Invoke-RequestExecution {
             Write-Log "Copied history item as PowerShell command to clipboard."
         }
     })
+    $copyAsPythonMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Copy as Python", $null, {
+        $selectedItem = $listHistory.SelectedItem
+        if ($selectedItem) {
+            $selectedHistoryItem = $selectedItem.Value
+            $pyCommand = Generate-CodeSnippet -RequestItem $selectedHistoryItem -Language "Python"
+            [System.Windows.Forms.Clipboard]::SetText($pyCommand)
+            Write-Log "Copied history item as Python snippet to clipboard."
+        }
+    })
+    $copyAsCSharpMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Copy as C#", $null, {
+        $selectedItem = $listHistory.SelectedItem
+        if ($selectedItem) {
+            $selectedHistoryItem = $selectedItem.Value
+            $csCommand = Generate-CodeSnippet -RequestItem $selectedHistoryItem -Language "C#"
+            [System.Windows.Forms.Clipboard]::SetText($csCommand)
+            Write-Log "Copied history item as C# snippet to clipboard."
+        }
+    })
 
-    $historyContextMenu.Items.AddRange(@($duplicateHistoryItem, $copyAsCurlMenuItem, $copyAsPSMenuItem, $deleteHistoryItem))
+    $historyContextMenu.Items.AddRange(@($duplicateHistoryItem, $copyAsCurlMenuItem, $copyAsPSMenuItem, $copyAsPythonMenuItem, $copyAsCSharpMenuItem, $deleteHistoryItem))
     $listHistory.ContextMenuStrip = $historyContextMenu
 
     $listHistory.Add_MouseDown({
@@ -5413,6 +5495,11 @@ function Invoke-RequestExecution {
             try { $monitorTimer.Dispose() } catch {}
             $monitorTimer = $null
         }
+        if ($script:autoSaveTimer) {
+            try { $script:autoSaveTimer.Stop() } catch {}
+            try { $script:autoSaveTimer.Dispose() } catch {}
+            $script:autoSaveTimer = $null
+        }
         # Hide undocked forms so they do not briefly reactivate the owner while the main form
         # is closing. They will be disposed after shutdown completes.
         if ($script:historyForm -and -not $script:historyForm.IsDisposed) {
@@ -5435,6 +5522,8 @@ function Invoke-RequestExecution {
             $script:monitorPool = $null
         }
         # Perform cleanup for background jobs and timers
+        if (Test-Path $draftsFilePath) { Remove-Item $draftsFilePath -Force -ErrorAction SilentlyContinue }
+        
         # (The cleanup after Application::Run is still there, but this is more robust)
         # Allow the main form to close
         $e.Cancel = $false
@@ -5456,6 +5545,10 @@ function Invoke-RequestExecution {
             $script:responseForm = $null
         }
     })
+    
+    # Apply selected Theme before displaying the form
+    Set-AppTheme -Form $form
+    
     $form.ShowDialog() | Out-Null
     # Perform cleanup after the main form is closed.
     if ($script:currentPowerShell) { $script:currentPowerShell.Dispose() }

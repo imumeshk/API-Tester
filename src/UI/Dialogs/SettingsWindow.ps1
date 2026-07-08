@@ -55,8 +55,15 @@ function Show-SettingsWindow {
     $checkShowResponseHeaders = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Response Headers Tab"; Checked = $script:settings.ShowResponseHeaders; AutoSize = $true }
     $checkShowCurl = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Code Snippets Tab"; Checked = $script:settings.ShowCurl; AutoSize = $true }
     $checkShowConsole = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Console Tab"; Checked = $script:settings.ShowConsoleTab; AutoSize = $true }
+    
+    $panelTheme = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ AutoSize = $true; FlowDirection = 'LeftToRight'; Margin = [System.Windows.Forms.Padding]::new(0, 10, 0, 0) }
+    $labelTheme = New-Object System.Windows.Forms.Label -Property @{ Text = "App Theme:"; AutoSize = $true; Anchor = 'Left'; TextAlign = 'MiddleLeft'; Margin = [System.Windows.Forms.Padding]::new(0, 5, 5, 0) }
+    $comboTheme = New-Object System.Windows.Forms.ComboBox -Property @{ DropDownStyle = 'DropDownList'; Width = 120 }
+    $comboTheme.Items.AddRange(@("Light", "Dark"))
+    if ($script:settings.AppTheme) { $comboTheme.SelectedItem = $script:settings.AppTheme } else { $comboTheme.SelectedItem = "Light" }
+    $panelTheme.Controls.AddRange(@($labelTheme, $comboTheme))
 
-    $panelsTable.Controls.AddRange(@($checkShowEnvironment, $checkShowHistory, $checkShowRequestHeaders, $checkShowAuth, $checkShowPreRequest, $checkShowTests, $checkShowTestResults, $checkShowResponse, $checkShowJsonTree, $checkShowResponseHeaders, $checkShowCurl, $checkShowConsole))
+    $panelsTable.Controls.AddRange(@($checkShowEnvironment, $checkShowHistory, $checkShowRequestHeaders, $checkShowAuth, $checkShowPreRequest, $checkShowTests, $checkShowTestResults, $checkShowResponse, $checkShowJsonTree, $checkShowResponseHeaders, $checkShowCurl, $checkShowConsole, $panelTheme))
     $groupPanels.Controls.Add($panelsTable)
 
     # --- Group 2: Configuration (FIXED CUTOFFS) ---
@@ -299,7 +306,15 @@ function Show-SettingsWindow {
         $script:settings.ResponseFontSize = $numFontSize.Value
         $script:settings.EnableRepeatRequest = $checkEnableRepeat.Checked
         $script:settings.MaxRepeatCount = [int]$numRepeatCount.Value
+        
+        $oldTheme = $script:settings.AppTheme
+        $script:settings.AppTheme = $comboTheme.SelectedItem
+        
         Save-Settings
+        
+        if ($oldTheme -ne $script:settings.AppTheme) {
+            Set-AppTheme -Form $parentForm
+        }
         $settingsForm.DialogResult = [System.Windows.Forms.DialogResult]::OK
         $settingsForm.Close()
     }

@@ -61,6 +61,7 @@ $environmentsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_enviro
 $globalsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_globals.json"
 $collectionsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_collections.json"
 $requestTabsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_request_tabs.json"
+$draftsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_drafts.json"
 $requestTemplatesFilePath = Join-Path -Path $configDir -ChildPath "api_tester_request_templates.json"
 $monitorsFilePath = Join-Path -Path $configDir -ChildPath "api_tester_monitors.json"
 $monitorLogFilePath = Join-Path -Path $historyDir -ChildPath "api_tester_monitor_log.csv"
@@ -100,17 +101,36 @@ catch {
 
 #region UI Theme & Icons
 
-$script:Theme = @{
-    FormBackground      = [System.Drawing.ColorTranslator]::FromHtml("#f0f2f5")
-    GroupBackground     = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-    TextColor           = [System.Drawing.ColorTranslator]::FromHtml("#1f1f1f")
-    PrimaryButton       = [System.Drawing.ColorTranslator]::FromHtml("#0078d4")
-    PrimaryButtonText   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-    SecondaryButton     = [System.Drawing.ColorTranslator]::FromHtml("#e1e1e1")
-    SecondaryButtonText = [System.Drawing.ColorTranslator]::FromHtml("#1f1f1f")
-    DangerButton        = [System.Drawing.ColorTranslator]::FromHtml("#d93025")
-    DangerButtonText    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+$script:Themes = @{
+    Light = @{
+        FormBackground      = [System.Drawing.ColorTranslator]::FromHtml("#f0f2f5")
+        GroupBackground     = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        TextColor           = [System.Drawing.ColorTranslator]::FromHtml("#1f1f1f")
+        PrimaryButton       = [System.Drawing.ColorTranslator]::FromHtml("#0078d4")
+        PrimaryButtonText   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        SecondaryButton     = [System.Drawing.ColorTranslator]::FromHtml("#e1e1e1")
+        SecondaryButtonText = [System.Drawing.ColorTranslator]::FromHtml("#1f1f1f")
+        DangerButton        = [System.Drawing.ColorTranslator]::FromHtml("#d93025")
+        DangerButtonText    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        TextBoxBackground   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        GridBackground      = [System.Drawing.ColorTranslator]::FromHtml("#f9f9f9")
+    }
+    Dark = @{
+        FormBackground      = [System.Drawing.ColorTranslator]::FromHtml("#1e1e1e")
+        GroupBackground     = [System.Drawing.ColorTranslator]::FromHtml("#252526")
+        TextColor           = [System.Drawing.ColorTranslator]::FromHtml("#d4d4d4")
+        PrimaryButton       = [System.Drawing.ColorTranslator]::FromHtml("#0078d4")
+        PrimaryButtonText   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        SecondaryButton     = [System.Drawing.ColorTranslator]::FromHtml("#333333")
+        SecondaryButtonText = [System.Drawing.ColorTranslator]::FromHtml("#d4d4d4")
+        DangerButton        = [System.Drawing.ColorTranslator]::FromHtml("#d93025")
+        DangerButtonText    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+        TextBoxBackground   = [System.Drawing.ColorTranslator]::FromHtml("#1e1e1e")
+        GridBackground      = [System.Drawing.ColorTranslator]::FromHtml("#2d2d30")
+    }
 }
+
+$script:Theme = $script:Themes["Light"]
 
 #endregion
 
