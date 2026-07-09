@@ -1,3 +1,19 @@
+function Show-InputBox {
+    param([string]$Prompt, [string]$Title = "Input", [string]$DefaultText = "")
+    $form = New-Object System.Windows.Forms.Form -Property @{ Text=$Title; Size=New-Object System.Drawing.Size(400,160); StartPosition="CenterParent"; FormBorderStyle="FixedDialog"; MaximizeBox=$false; MinimizeBox=$false; BackColor=$script:Theme.FormBackground }
+    $lbl = New-Label -Text $Prompt -Property @{ Location=New-Object System.Drawing.Point(15,15); AutoSize=$true }
+    $txt = New-TextBox -Property @{ Location=New-Object System.Drawing.Point(15,40); Width=350; Text=$DefaultText }
+    $btnOk = New-Button -Text "OK" -Style 'Primary' -Property @{ Location=New-Object System.Drawing.Point(210,80); Width=75; DialogResult="OK" }
+    $btnCancel = New-Button -Text "Cancel" -Property @{ Location=New-Object System.Drawing.Point(290,80); Width=75; DialogResult="Cancel" }
+    $form.Controls.AddRange(@($lbl, $txt, $btnOk, $btnCancel))
+    $form.AcceptButton = $btnOk
+    $form.CancelButton = $btnCancel
+    $result = ""
+    if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $result = $txt.Text }
+    $form.Dispose()
+    return $result
+}
+
 function Write-Log {
     param (
         [string]$Message,

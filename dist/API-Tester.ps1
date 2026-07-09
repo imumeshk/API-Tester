@@ -150,6 +150,22 @@ $script:Theme = $script:Themes["Light"]
 
 # Writes a timestamped message to the log file if logging is enabled in settings.
 
+function Show-InputBox {
+    param([string]$Prompt, [string]$Title = "Input", [string]$DefaultText = "")
+    $form = New-Object System.Windows.Forms.Form -Property @{ Text=$Title; Size=New-Object System.Drawing.Size(400,160); StartPosition="CenterParent"; FormBorderStyle="FixedDialog"; MaximizeBox=$false; MinimizeBox=$false; BackColor=$script:Theme.FormBackground }
+    $lbl = New-Label -Text $Prompt -Property @{ Location=New-Object System.Drawing.Point(15,15); AutoSize=$true }
+    $txt = New-TextBox -Property @{ Location=New-Object System.Drawing.Point(15,40); Width=350; Text=$DefaultText }
+    $btnOk = New-Button -Text "OK" -Style 'Primary' -Property @{ Location=New-Object System.Drawing.Point(210,80); Width=75; DialogResult="OK" }
+    $btnCancel = New-Button -Text "Cancel" -Property @{ Location=New-Object System.Drawing.Point(290,80); Width=75; DialogResult="Cancel" }
+    $form.Controls.AddRange(@($lbl, $txt, $btnOk, $btnCancel))
+    $form.AcceptButton = $btnOk
+    $form.CancelButton = $btnCancel
+    $result = ""
+    if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $result = $txt.Text }
+    $form.Dispose()
+    return $result
+}
+
 function Write-Log {
     param (
         [string]$Message,
@@ -1505,11 +1521,6 @@ function Invoke-RunTests {
     }
     return $out.ToString()
 }
-
-Write-Log "Script finished"
-
-# Create and run the form
-$apiForm = New-APIForm
 
 function Parse-OpenApiSpec {
     param([string]$FilePath)
@@ -7583,8 +7594,10 @@ function Invoke-RequestExecution {
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
     }
 
-    $btnNewRequestTab = New-Button -Text "New Tab" -Style 'Secondary' -Property @{
-        Width = 90
+    $btnNewRequestTab = New-Button -Text "New Tab" -Style 'Secondary' -OnClick {
+        Add-RequestTab
+    } -Property @{
+        AutoSize = $true
         Height = 30
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
         Anchor = 'Right'
@@ -7595,7 +7608,7 @@ function Invoke-RequestExecution {
             Add-RequestTab -InitialState $activeState
         }
     } -Property @{
-        Width = 90
+        AutoSize = $true
         Height = 30
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
         Anchor = 'Right'
@@ -7603,7 +7616,7 @@ function Invoke-RequestExecution {
     $btnCloseRequestTab = New-Button -Text "Close Tab" -Style 'Secondary' -OnClick {
         Remove-ActiveRequestTab
     } -Property @{
-        Width = 90
+        AutoSize = $true
         Height = 30
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 8, 0)
         Anchor = 'Right'
@@ -7611,7 +7624,7 @@ function Invoke-RequestExecution {
     $btnTemplates = New-Button -Text "Templates" -Style 'Secondary' -OnClick {
         Show-RequestTemplatesWindow
     } -Property @{
-        Width = 95
+        AutoSize = $true
         Height = 30
         Anchor = 'Right'
     }
@@ -7728,6 +7741,7 @@ function Invoke-RequestExecution {
         AllowUserToAddRows = $false
         AllowUserToDeleteRows = $false
         AutoSizeColumnsMode = 'Fill'
+        ColumnHeadersHeightSizeMode = 'AutoSize'
         RowHeadersVisible = $false
         BackgroundColor = $script:Theme.GroupBackground
         BorderStyle = 'None'
@@ -8325,7 +8339,7 @@ function Invoke-RequestExecution {
         }
         $btnSaveTemplate = New-Button -Text "Save Current" -Property @{ Width = 110; Height = 30; Margin = [System.Windows.Forms.Padding]::new(0,0,8,0) } -OnClick {
             Save-ActiveRequestTabState
-            $name = [Microsoft.VisualBasic.Interaction]::InputBox("Enter a template name:", "Save Template", "Template $($script:requestTemplates.Count + 1)")
+            $name = Show-InputBox -Prompt "Enter a template name:" -Title "Save Template" -DefaultText "Template $($script:requestTemplates.Count + 1)"
             if ([string]::IsNullOrWhiteSpace($name)) { return }
             $templateState = Capture-CurrentRequestState
             $templateState.Id = [guid]::NewGuid().ToString()
@@ -8372,7 +8386,7 @@ function Invoke-RequestExecution {
         $tabState = @($script:requestTabs | Where-Object { $_.Id -eq $tabId })[0]
         if (-not $tabState) { return }
 
-        $newName = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new tab name:", "Rename Tab", $tabState.Name)
+        $newName = Show-InputBox -Prompt "Enter new tab name:" -Title "Rename Tab" -DefaultText $tabState.Name
         if (-not [string]::IsNullOrWhiteSpace($newName)) {
             $tabState.Name = $newName
             $selectedPage.Text = $newName
@@ -8407,7 +8421,9 @@ function Invoke-RequestExecution {
             return
         }
         
-        $repeatCount = [int][Microsoft.VisualBasic.Interaction]::InputBox("Enter number of times to repeat the request:`n(Max: $($script:settings.MaxRepeatCount))", "Repeat Request", "1")
+        $repeatStr = Show-InputBox -Prompt "Enter number of times to repeat the request:`n(Max: $($script:settings.MaxRepeatCount))" -Title "Repeat Request" -DefaultText "1"
+        $repeatCount = 0
+        if (-not [int]::TryParse($repeatStr, [ref]$repeatCount)) { return }
         
         if ($repeatCount -le 0) { 
             [System.Windows.Forms.MessageBox]::Show("Please enter a positive number.", "Invalid Input", "OK", "Warning")
@@ -8878,7 +8894,7 @@ function Invoke-RequestExecution {
         Height = 35
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0)
     } -OnClick {
-        $lineStr = [Microsoft.VisualBasic.Interaction]::InputBox("Enter Line Number:", "Go To Line", "1")
+        $lineStr = Show-InputBox -Prompt "Enter Line Number:" -Title "Go To Line" -DefaultText "1"
         if ([int]::TryParse($lineStr, [ref]$null)) {
             $line = [int]$lineStr
             if ($line -gt 0 -and $line -le $richTextResponse.Lines.Length) {
@@ -9813,7 +9829,7 @@ function Invoke-RequestExecution {
     # --- Collections Context Menu ---
     $collectionsContextMenu = New-Object System.Windows.Forms.ContextMenuStrip
     $addCollectionMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("New Collection", $null, {
-        $name = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new collection name:", "New Collection")
+        $name = Show-InputBox -Prompt "Enter new collection name:" -Title "New Collection"
         if ($name) {
             $newCollection = [PSCustomObject]@{ Name = $name; Type = "Collection"; Items = @(); Variables = @{} } # Create new collection object
             $script:collections += $newCollection #FIX: Corrected collection creation
@@ -9824,7 +9840,7 @@ function Invoke-RequestExecution {
     $addFolderMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("New Folder", $null, {
         $selectedNode = $treeViewCollections.SelectedNode
         if ($selectedNode) {
-            $name = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new folder name:", "New Folder") # Prompt for folder name
+            $name = Show-InputBox -Prompt "Enter new folder name:" -Title "New Folder" # Prompt for folder name
             if ($name) {
                 $newFolder = [PSCustomObject]@{ Name = $name; Type = "Folder"; Items = @() }
                 $selectedNode.Tag.Items += $newFolder
@@ -9837,7 +9853,7 @@ function Invoke-RequestExecution {
     $saveRequestMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Save Current Request", $null, {
         $selectedNode = $treeViewCollections.SelectedNode
         if ($selectedNode) {
-            $name = [Microsoft.VisualBasic.Interaction]::InputBox("Enter request name:", "Save Request", "$($script:comboMethod.SelectedItem) $($script:textUrl.Text)") # Prompt for request name
+            $name = Show-InputBox -Prompt "Enter request name:" -Title "Save Request" -DefaultText "$($script:comboMethod.SelectedItem) $($script:textUrl.Text)" # Prompt for request name
             if ($name) {
                 $newRequest = [PSCustomObject]@{
                     Name = $name
@@ -9884,7 +9900,7 @@ function Invoke-RequestExecution {
     $renameMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Rename", $null, {
         $selectedNode = $treeViewCollections.SelectedNode
         if ($selectedNode) {
-            $newName = [Microsoft.VisualBasic.Interaction]::InputBox("Enter new name:", "Rename", $selectedNode.Text) # Prompt for new name
+            $newName = Show-InputBox -Prompt "Enter new name:" -Title "Rename" -DefaultText $selectedNode.Text # Prompt for new name
             if ($newName) {
                 $selectedNode.Tag.Name = $newName
                 $selectedNode.Text = $newName
@@ -10614,6 +10630,7 @@ function Invoke-RequestExecution {
 }
 
 #endregion
+
 
 
 
