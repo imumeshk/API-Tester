@@ -1788,47 +1788,74 @@ function Show-AboutDialog {
         MaximizeBox     = $false
         MinimizeBox     = $false
         BackColor       = $script:Theme.FormBackground
-        Padding         = [System.Windows.Forms.Padding]::new(20)
     }
 
-    # --- Header panel (icon + app name) ---
-    $headerPanel = New-Object System.Windows.Forms.Panel -Property @{
-        Dock      = 'Top'
-        Height    = 90
-        BackColor = $script:Theme.PrimaryButton
-        Padding   = [System.Windows.Forms.Padding]::new(15, 10, 15, 10)
+    $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
+        Dock        = 'Fill'
+        ColumnCount = 1
+        RowCount    = 5
+        BackColor   = $script:Theme.FormBackground
     }
+    $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
+    $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
+    $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 2))) | Out-Null
+    $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+    $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
+
+    # --- Header ---
+    $headerPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
+        Dock        = 'Fill'
+        ColumnCount = 2
+        RowCount    = 1
+        BackColor   = $script:Theme.PrimaryButton
+        AutoSize    = $true
+        Padding     = [System.Windows.Forms.Padding]::new(15, 15, 15, 15)
+        Margin      = [System.Windows.Forms.Padding]::new(0)
+    }
+    $headerPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
+    $headerPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
 
     $picIcon = New-Object System.Windows.Forms.PictureBox -Property @{
         Image    = [System.Drawing.SystemIcons]::Application.ToBitmap()
         Size     = [System.Drawing.Size]::new(48, 48)
-        Location = [System.Drawing.Point]::new(15, 16)
         SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::StretchImage
+        Margin   = [System.Windows.Forms.Padding]::new(0, 0, 15, 0)
     }
 
-    $lblAppName = New-Label -Text "PowerShell API Tester" -Property @{
+    $headerTextFlow = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{
+        Dock          = 'Fill'
+        FlowDirection = 'TopDown'
+        AutoSize      = $true
+        WrapContents  = $false
+        Margin        = [System.Windows.Forms.Padding]::new(0)
+    }
+    $headerTextFlow.Controls.Add((New-Label -Text "PowerShell API Tester" -Property @{ 
         Font      = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
         ForeColor = [System.Drawing.Color]::White
-        Location  = [System.Drawing.Point]::new(73, 12)
         AutoSize  = $true
-    }
-
-    $lblTagline = New-Label -Text "Feature-rich REST / gRPC API testing tool for Windows" -Property @{
-        Font      = New-Object System.Drawing.Font("Segoe UI", 8)
+        Margin    = [System.Windows.Forms.Padding]::new(0)
+    }))
+    $headerTextFlow.Controls.Add((New-Label -Text "Feature-rich REST / gRPC API testing tool for Windows" -Property @{ 
+        Font      = New-Object System.Drawing.Font("Segoe UI", 9)
         ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#cfe8fc")
-        Location  = [System.Drawing.Point]::new(74, 44)
         AutoSize  = $true
-    }
+        Margin    = [System.Windows.Forms.Padding]::new(0, 5, 0, 0)
+    }))
 
-    $headerPanel.Controls.AddRange(@($picIcon, $lblAppName, $lblTagline))
+    $headerPanel.Controls.Add($picIcon, 0, 0)
+    $headerPanel.Controls.Add($headerTextFlow, 1, 0)
 
-    # --- Details panel ---
-    $detailsPanel = New-Object System.Windows.Forms.Panel -Property @{
-        Dock      = 'Top'
-        Height    = 230
-        BackColor = $script:Theme.GroupBackground
-        Padding   = [System.Windows.Forms.Padding]::new(20, 15, 20, 10)
+    # --- Details ---
+    $detailsPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
+        Dock        = 'Fill'
+        ColumnCount = 2
+        AutoSize    = $true
+        Padding     = [System.Windows.Forms.Padding]::new(20, 20, 20, 20)
+        Margin      = [System.Windows.Forms.Padding]::new(0)
+        BackColor   = $script:Theme.GroupBackground
     }
+    $detailsPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
+    $detailsPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
 
     $boldFont   = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
     $normalFont = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -1836,86 +1863,65 @@ function Show-AboutDialog {
     $blueColor  = [System.Drawing.ColorTranslator]::FromHtml("#0078d4")
 
     $infoRows = @(
-        @{ Label = "Version:";  Value = "v$($script:AppVersion)";  IsLink = $false },
-        @{ Label = "Author:";   Value = "Umesh Kashyap";            IsLink = $false },
-        @{ Label = "License:";  Value = "MIT";                      IsLink = $false },
+        @{ Label = "Version:";  Value = "v$($script:AppVersion)"; IsLink = $false },
+        @{ Label = "Author:";   Value = "Umesh Kashyap";          IsLink = $false },
+        @{ Label = "License:";  Value = "MIT";                    IsLink = $false },
         @{ Label = "GitHub:";   Value = "github.com/$($script:AppGitHubRepo)"; IsLink = $true }
     )
 
-    $yPos = 15
-    foreach ($row in $infoRows) {
-        $lblKey = New-Label -Text $row.Label -Property @{
-            Font      = $boldFont
-            ForeColor = $grayColor
-            Location  = [System.Drawing.Point]::new(0, $yPos)
-            Size      = [System.Drawing.Size]::new(80, 22)
-        }
+    $row = 0
+    foreach ($r in $infoRows) {
+        $detailsPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
+        $lblKey = New-Label -Text $r.Label -Property @{ Font = $boldFont; ForeColor = $grayColor; AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0, 0, 15, 10) }
+        $detailsPanel.Controls.Add($lblKey, 0, $row)
 
-        if ($row.IsLink) {
-            $lnk = New-Object System.Windows.Forms.LinkLabel -Property @{
-                Text      = $row.Value
-                Font      = $normalFont
-                Location  = [System.Drawing.Point]::new(90, $yPos)
-                Size      = [System.Drawing.Size]::new(310, 22)
-                LinkColor = $blueColor
-            }
+        if ($r.IsLink) {
+            $lnk = New-Object System.Windows.Forms.LinkLabel -Property @{ Text = $r.Value; Font = $normalFont; AutoSize = $true; LinkColor = $blueColor; Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 10) }
             $repoUrl = "https://github.com/$($script:AppGitHubRepo)"
             $lnk.Add_LinkClicked({
                 try { [System.Diagnostics.Process]::Start($repoUrl) | Out-Null } catch {}
             })
-            $detailsPanel.Controls.Add($lnk)
+            $detailsPanel.Controls.Add($lnk, 1, $row)
         } else {
-            $lblVal = New-Label -Text $row.Value -Property @{
-                Font      = $normalFont
-                ForeColor = $script:Theme.TextColor
-                Location  = [System.Drawing.Point]::new(90, $yPos)
-                Size      = [System.Drawing.Size]::new(310, 22)
-            }
-            $detailsPanel.Controls.Add($lblVal)
+            $lblVal = New-Label -Text $r.Value -Property @{ Font = $normalFont; AutoSize = $true; ForeColor = $script:Theme.TextColor; Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 10) }
+            $detailsPanel.Controls.Add($lblVal, 1, $row)
         }
-
-        $detailsPanel.Controls.Add($lblKey)
-        $yPos += 30
+        $row++
     }
-
-    # Description line
-    $lblDesc = New-Label -Text "A feature-rich API testing tool built entirely in PowerShell & WinForms." -Property @{
+    
+    $detailsPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
+    $lblDesc = New-Label -Text "A feature-rich API testing tool built entirely in PowerShell & WinForms." -Property @{ 
         Font      = $normalFont
         ForeColor = $grayColor
-        Location  = [System.Drawing.Point]::new(0, $yPos + 5)
-        Size      = [System.Drawing.Size]::new(400, 40)
-        AutoSize  = $false
+        AutoSize  = $true
+        Margin    = [System.Windows.Forms.Padding]::new(0, 10, 0, 0)
     }
-    $detailsPanel.Controls.Add($lblDesc)
+    $detailsPanel.Controls.Add($lblDesc, 0, $row)
+    $detailsPanel.SetColumnSpan($lblDesc, 2)
 
     # --- Separator ---
-    $sep = New-Object System.Windows.Forms.Panel -Property @{
-        Dock      = 'Top'
-        Height    = 2
-        BackColor = [System.Drawing.ColorTranslator]::FromHtml("#dee2e6")
-    }
+    $sep = New-Object System.Windows.Forms.Panel -Property @{ Dock = 'Fill'; Margin = [System.Windows.Forms.Padding]::new(0); BackColor = [System.Drawing.ColorTranslator]::FromHtml("#dee2e6") }
 
-    # --- Update panel ---
-    $updatePanel = New-Object System.Windows.Forms.Panel -Property @{
-        Dock      = 'Top'
-        Height    = 130
-        BackColor = $script:Theme.FormBackground
-        Padding   = [System.Windows.Forms.Padding]::new(20, 10, 20, 10)
+    # --- Update Panel ---
+    $updatePanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
+        Dock        = 'Fill'
+        ColumnCount = 1
+        RowCount    = 4
+        AutoSize    = $true
+        Padding     = [System.Windows.Forms.Padding]::new(20, 15, 20, 15)
+        Margin      = [System.Windows.Forms.Padding]::new(0)
     }
+    $lblUpdateTitle = New-Label -Text "Software Update" -Property @{ Font = $boldFont; ForeColor = $script:Theme.TextColor; AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 5) }
+    $lblUpdateStatus = New-Label -Text "Click 'Check for Updates' to check." -Property @{ Font = $normalFont; ForeColor = $grayColor; AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 15) }
+    
+    $updatePanel.Controls.Add($lblUpdateTitle, 0, 0)
+    $updatePanel.Controls.Add($lblUpdateStatus, 0, 1)
 
-    $lblUpdateTitle = New-Label -Text "Software Update" -Property @{
-        Font      = $boldFont
-        ForeColor = $script:Theme.TextColor
-        Location  = [System.Drawing.Point]::new(0, 10)
-        AutoSize  = $true
-    }
-
-    $lblUpdateStatus = New-Label -Text "Click 'Check for Updates' to check." -Property @{
-        Font      = $normalFont
-        ForeColor = $grayColor
-        Location  = [System.Drawing.Point]::new(0, 35)
-        Size      = [System.Drawing.Size]::new(420, 20)
-        AutoSize  = $false
+    $btnFlow = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{
+        Dock          = 'Fill'
+        FlowDirection = 'LeftToRight'
+        AutoSize      = $true
+        Margin        = [System.Windows.Forms.Padding]::new(0)
     }
 
     $btnDownload = New-Button -Text "Download & Update" -Style 'Primary' -OnClick {
@@ -1924,41 +1930,46 @@ function Show-AboutDialog {
             Invoke-DownloadUpdate -Release $release -StatusLabel $lblUpdateStatus
         }
     } -Property @{
-        Location = [System.Drawing.Point]::new(0, 60)
-        Size     = [System.Drawing.Size]::new(180, 32)
         AutoSize = $true
+        Height   = 32
         Visible  = $false
+        Margin   = [System.Windows.Forms.Padding]::new(0, 0, 10, 0)
     }
     $btnDownload.Name = "btnDownload"
 
     $btnCheck = New-Button -Text "Check for Updates" -Style 'Secondary' -OnClick {
         Invoke-UpdateCheck -StatusLabel $lblUpdateStatus -DownloadButton $btnDownload -ParentForm $aboutForm
     } -Property @{
-        Location = [System.Drawing.Point]::new(190, 60)
-        Size     = [System.Drawing.Size]::new(180, 32)
         AutoSize = $true
-    }
-
-    $updatePanel.Controls.AddRange(@($lblUpdateTitle, $lblUpdateStatus, $btnDownload, $btnCheck))
-
-    # --- Footer (Close button) ---
-    $footerPanel = New-Object System.Windows.Forms.Panel -Property @{
-        Dock      = 'Bottom'
-        Height    = 50
-        BackColor = $script:Theme.FormBackground
-        Padding   = [System.Windows.Forms.Padding]::new(0, 10, 0, 0)
-    }
-
-    $btnClose = New-Button -Text "Close" -Style 'Secondary' -OnClick { $aboutForm.Close() } -Property @{
-        Dock     = 'Right'
-        Width    = 100
         Height   = 32
-        AutoSize = $true
+        Margin   = [System.Windows.Forms.Padding]::new(0)
     }
-    $footerPanel.Controls.Add($btnClose)
+    $btnFlow.Controls.AddRange(@($btnDownload, $btnCheck))
+    $updatePanel.Controls.Add($btnFlow, 0, 2)
 
-    # Add controls in reverse dock order (Bottom ? Top)
-    $aboutForm.Controls.AddRange(@($footerPanel, $updatePanel, $sep, $detailsPanel, $headerPanel))
+    # --- Footer ---
+    $footerFlow = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{
+        Dock          = 'Fill'
+        FlowDirection = 'RightToLeft'
+        AutoSize      = $true
+        Padding       = [System.Windows.Forms.Padding]::new(15)
+        Margin        = [System.Windows.Forms.Padding]::new(0)
+        BackColor     = $script:Theme.GroupBackground
+    }
+    $btnClose = New-Button -Text "Close" -Style 'Secondary' -OnClick { $aboutForm.Close() } -Property @{ 
+        AutoSize = $true
+        Height   = 32
+        Margin   = [System.Windows.Forms.Padding]::new(0) 
+    }
+    $footerFlow.Controls.Add($btnClose)
+
+    $mainLayout.Controls.Add($headerPanel, 0, 0)
+    $mainLayout.Controls.Add($detailsPanel, 0, 1)
+    $mainLayout.Controls.Add($sep, 0, 2)
+    $mainLayout.Controls.Add($updatePanel, 0, 3)
+    $mainLayout.Controls.Add($footerFlow, 0, 4)
+
+    $aboutForm.Controls.Add($mainLayout)
 
     $aboutForm.ShowDialog($parentForm) | Out-Null
     $aboutForm.Dispose()
@@ -1967,6 +1978,8 @@ function Show-AboutDialog {
 #endregion About & Update Functions
 
 # The main function that constructs and displays the primary application window.
+
+
 
 
 
