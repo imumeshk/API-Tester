@@ -1788,6 +1788,8 @@ function Show-AboutDialog {
         MaximizeBox     = $false
         MinimizeBox     = $false
         BackColor       = $script:Theme.FormBackground
+        AutoSize        = $true
+        AutoSizeMode    = 'GrowAndShrink'
     }
 
     $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
@@ -1836,10 +1838,11 @@ function Show-AboutDialog {
         Margin    = [System.Windows.Forms.Padding]::new(0)
     }))
     $headerTextFlow.Controls.Add((New-Label -Text "Feature-rich REST / gRPC API testing tool for Windows" -Property @{ 
-        Font      = New-Object System.Drawing.Font("Segoe UI", 9)
-        ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#cfe8fc")
-        AutoSize  = $true
-        Margin    = [System.Windows.Forms.Padding]::new(0, 5, 0, 0)
+        Font        = New-Object System.Drawing.Font("Segoe UI", 9)
+        ForeColor   = [System.Drawing.ColorTranslator]::FromHtml("#cfe8fc")
+        AutoSize    = $true
+        MaximumSize = [System.Drawing.Size]::new(450, 0)
+        Margin      = [System.Windows.Forms.Padding]::new(0, 5, 0, 0)
     }))
 
     $headerPanel.Controls.Add($picIcon, 0, 0)
@@ -1891,10 +1894,11 @@ function Show-AboutDialog {
     
     $detailsPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
     $lblDesc = New-Label -Text "A feature-rich API testing tool built entirely in PowerShell & WinForms." -Property @{ 
-        Font      = $normalFont
-        ForeColor = $grayColor
-        AutoSize  = $true
-        Margin    = [System.Windows.Forms.Padding]::new(0, 10, 0, 0)
+        Font        = $normalFont
+        ForeColor   = $grayColor
+        AutoSize    = $true
+        MaximumSize = [System.Drawing.Size]::new(480, 0)
+        Margin      = [System.Windows.Forms.Padding]::new(0, 10, 0, 0)
     }
     $detailsPanel.Controls.Add($lblDesc, 0, $row)
     $detailsPanel.SetColumnSpan($lblDesc, 2)
@@ -1912,7 +1916,7 @@ function Show-AboutDialog {
         Margin      = [System.Windows.Forms.Padding]::new(0)
     }
     $lblUpdateTitle = New-Label -Text "Software Update" -Property @{ Font = $boldFont; ForeColor = $script:Theme.TextColor; AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 5) }
-    $lblUpdateStatus = New-Label -Text "Click 'Check for Updates' to check." -Property @{ Font = $normalFont; ForeColor = $grayColor; AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 15) }
+    $lblUpdateStatus = New-Label -Text "Click 'Check for Updates' to check." -Property @{ Font = $normalFont; ForeColor = $grayColor; AutoSize = $true; MaximumSize = [System.Drawing.Size]::new(480, 0); Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 15) }
     
     $updatePanel.Controls.Add($lblUpdateTitle, 0, 0)
     $updatePanel.Controls.Add($lblUpdateStatus, 0, 1)
