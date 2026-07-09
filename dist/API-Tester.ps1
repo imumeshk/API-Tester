@@ -1925,7 +1925,8 @@ function Show-AboutDialog {
         }
     } -Property @{
         Location = [System.Drawing.Point]::new(0, 60)
-        Size     = [System.Drawing.Size]::new(160, 32)
+        Size     = [System.Drawing.Size]::new(180, 32)
+        AutoSize = $true
         Visible  = $false
     }
     $btnDownload.Name = "btnDownload"
@@ -1933,8 +1934,9 @@ function Show-AboutDialog {
     $btnCheck = New-Button -Text "Check for Updates" -Style 'Secondary' -OnClick {
         Invoke-UpdateCheck -StatusLabel $lblUpdateStatus -DownloadButton $btnDownload -ParentForm $aboutForm
     } -Property @{
-        Location = [System.Drawing.Point]::new(170, 60)
-        Size     = [System.Drawing.Size]::new(150, 32)
+        Location = [System.Drawing.Point]::new(190, 60)
+        Size     = [System.Drawing.Size]::new(180, 32)
+        AutoSize = $true
     }
 
     $updatePanel.Controls.AddRange(@($lblUpdateTitle, $lblUpdateStatus, $btnDownload, $btnCheck))
@@ -1948,9 +1950,10 @@ function Show-AboutDialog {
     }
 
     $btnClose = New-Button -Text "Close" -Style 'Secondary' -OnClick { $aboutForm.Close() } -Property @{
-        Dock   = 'Right'
-        Width  = 80
-        Height = 32
+        Dock     = 'Right'
+        Width    = 100
+        Height   = 32
+        AutoSize = $true
     }
     $footerPanel.Controls.Add($btnClose)
 
@@ -2307,7 +2310,8 @@ function Show-CookieJar {
     param($parentForm)
     $form = New-Object System.Windows.Forms.Form -Property @{ Text="Cookie Jar"; Size=New-Object System.Drawing.Size(600, 400); StartPosition="CenterParent"; BackColor=$script:Theme.FormBackground }
     
-    $grid = New-Object System.Windows.Forms.DataGridView -Property @{ Dock='Fill'; ReadOnly=$true; AllowUserToAddRows=$false; RowHeadersVisible=$false; AutoSizeColumnsMode='Fill'; BackgroundColor='White' }
+    $grid = New-Object System.Windows.Forms.DataGridView -Property @{ Dock='Fill'; ReadOnly=$true; AllowUserToAddRows=$false; RowHeadersVisible=$false; AutoSizeColumnsMode = 'Fill'
+        ColumnHeadersHeightSizeMode = 'AutoSize'; BackgroundColor='White' }
     $grid.Columns.Add("Domain", "Domain") | Out-Null
     $grid.Columns.Add("Name", "Name") | Out-Null
     $grid.Columns.Add("Value", "Value") | Out-Null
@@ -2387,6 +2391,7 @@ function Show-CookieJar {
 
 # Checks GitHub Releases API for a newer version.
 # Populates the $statusLabel and optionally shows the $downloadButton.
+
 
 function Show-DiffViewer {
     param(
@@ -2717,11 +2722,11 @@ function Show-GrpcClient {
     
     $txtHost = New-TextBox -Property @{ Dock='Fill'; Text='localhost:50051' }
 
-    $protoPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=1; Margin=[System.Windows.Forms.Padding]::new(0) }
+    $protoPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=1; Margin=[System.Windows.Forms.Padding]::new(0); AutoSize=$true; AutoSizeMode='GrowAndShrink' }
     $protoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
     $protoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $txtProtoFile = New-TextBox -Property @{ Dock='Fill'; PlaceholderText='Optional: Path to .proto file' }
-    $btnBrowseProto = New-Button -Text "Browse" -Property @{ Width=70 } -OnClick {
+    $btnBrowseProto = New-Button -Text "Browse" -Property @{ AutoSize=$true } -OnClick {
         $ofd = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter="Proto Files (*.proto)|*.proto|All Files (*.*)|*.*" }
         if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $txtProtoFile.Text = $ofd.FileName }
     }
@@ -2812,7 +2817,7 @@ function Show-GrpcClient {
     $inputPanel.Controls.Add($btnExecute, 0, 5)
     $inputPanel.SetColumnSpan($btnExecute, 2)
     
-    $outputTools = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Top'; AutoSize=$true; Padding=[System.Windows.Forms.Padding]::new(0); Margin=[System.Windows.Forms.Padding]::new(0); FlowDirection='LeftToRight'; WrapContents=$false }
+    $outputTools = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Top'; Padding=[System.Windows.Forms.Padding]::new(0); Margin=[System.Windows.Forms.Padding]::new(0); AutoSize=$true; AutoSizeMode='GrowAndShrink'; FlowDirection='LeftToRight'; WrapContents=$false }
     $btnBeautify = New-Button -Text "Beautify JSON" -Style 'Secondary' -Property @{ Width=140; Height=32; Margin=[System.Windows.Forms.Padding]::new(0,0,8,0) } -OnClick {
         if ([string]::IsNullOrWhiteSpace($txtOutput.Text)) { return }
         try {
@@ -2822,7 +2827,7 @@ function Show-GrpcClient {
             [System.Windows.Forms.MessageBox]::Show("Invalid JSON: $($_.Exception.Message)", "Error", "OK", "Error")
         }
     }
-    $btnDownload = New-Button -Text "Download grpcurl" -Style 'Secondary' -Property @{ Width=160; Height=32; Margin=[System.Windows.Forms.Padding]::new(0,0,8,0) } -OnClick {
+    $btnDownload = New-Button -Text "Download grpcurl" -Style 'Secondary' -Property @{ AutoSize=$true; Height=32; Margin=[System.Windows.Forms.Padding]::new(0,0,8,0) } -OnClick {
         try {
             $txtOutput.Text = "Checking for latest grpcurl release..."
             [System.Windows.Forms.Application]::DoEvents()
@@ -2888,6 +2893,10 @@ function Show-GrpcClient {
 }
 
 # --- Monitoring Dashboard Window ---
+
+
+
+
 
 function Show-JwtTool {
     $jwtForm = New-Object System.Windows.Forms.Form -Property @{ Text = "JWT Utility"; Size = New-Object System.Drawing.Size(950, 700); StartPosition = "CenterParent"; BackColor = $script:Theme.FormBackground }
@@ -3047,26 +3056,25 @@ function Show-LoadTester {
     # Settings Panel
     $settingsPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Fill'; FlowDirection = 'TopDown' }
     
-    $lblUrl = New-Label -Text "URL:"
+    $lblUrl = New-Label -Text "URL:" -Property @{ AutoSize = $true }
     $txtUrl = New-TextBox -Property @{ Width = 280; Text = if ($RequestObject) { $RequestObject.Url } else { "https://httpbin.org/get" } }
     
-    $lblMethod = New-Label -Text "Method:"
-    $comboMethod = New-Object System.Windows.Forms.ComboBox -Property @{ Width = 100; DropDownStyle = 'DropDownList' }
+    $lblMethod = New-Label -Text "Method:" -Property @{ AutoSize = $true }
+    $comboMethod = New-Object System.Windows.Forms.ComboBox -Property @{ Width = 150; DropDownStyle = 'DropDownList' }
     $comboMethod.Items.AddRange(@("GET", "POST", "PUT", "DELETE", "PATCH"))
     $comboMethod.SelectedItem = if ($RequestObject -and $RequestObject.Method) { $RequestObject.Method } else { "GET" }
 
-    $lblThreads = New-Label -Text "Concurrent Threads:"
-    $numThreads = New-Object System.Windows.Forms.NumericUpDown -Property @{ Minimum = 1; Maximum = 100; Value = 10; Width = 100 }
+    $lblThreads = New-Label -Text "Concurrent Threads:" -Property @{ AutoSize = $true }
+    $numThreads = New-Object System.Windows.Forms.NumericUpDown -Property @{ Minimum = 1; Maximum = 100; Value = 10; Width = 150 }
     
-    $lblDuration = New-Label -Text "Duration (Seconds):"
-    $numDuration = New-Object System.Windows.Forms.NumericUpDown -Property @{ Minimum = 1; Maximum = 3600; Value = 5; Width = 100 }
+    $lblDuration = New-Label -Text "Duration (Seconds):" -Property @{ AutoSize = $true }
+    $numDuration = New-Object System.Windows.Forms.NumericUpDown -Property @{ Minimum = 1; Maximum = 3600; Value = 5; Width = 150 }
 
-    $lblStats = New-Label -Text "Stats:" -Property @{ Margin = [System.Windows.Forms.Padding]::new(0,20,0,0); Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold) }
-    $lblReqCount = New-Label -Text "Requests: 0"
-    $lblSuccess = New-Label -Text "Success: 0"
-    $lblFailed = New-Label -Text "Failed: 0"
-    $lblAvgLat = New-Label -Text "Avg Latency: 0ms"
-
+    $lblStats = New-Label -Text "Stats:" -Property @{ AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0,20,0,0); Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold) }
+    $lblReqCount = New-Label -Text "Requests: 0" -Property @{ AutoSize = $true }
+    $lblSuccess = New-Label -Text "Success: 0" -Property @{ AutoSize = $true }
+    $lblFailed = New-Label -Text "Failed: 0" -Property @{ AutoSize = $true }
+    $lblAvgLat = New-Label -Text "Avg Latency: 0ms" -Property @{ AutoSize = $true }
     $settingsPanel.Controls.AddRange(@($lblUrl, $txtUrl, $lblMethod, $comboMethod, $lblThreads, $numThreads, $lblDuration, $numDuration, $lblStats, $lblReqCount, $lblSuccess, $lblFailed, $lblAvgLat))
     $mainLayout.Controls.Add($settingsPanel, 0, 0)
 
@@ -3249,6 +3257,10 @@ function Show-LoadTester {
     $testerForm.ShowDialog() | Out-Null
     $testerForm.Dispose()
 }
+
+
+
+
 
 function Show-LogViewer {
     param($parentForm)    
@@ -3841,7 +3853,7 @@ function Show-MonitorManager {
     $panelBtn.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
     $panelBtn.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50))) | Out-Null
     
-    $btnAdd = New-Button -Text "Add Monitor..." -Property @{ Width = 130; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnAdd = New-Button -Text "Add Monitor..." -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         $newMonitor = @{
             Id = [Guid]::NewGuid().ToString()
             Name = "New Monitor"
@@ -3859,7 +3871,7 @@ function Show-MonitorManager {
         }
     }
 
-    $btnEdit = New-Button -Text "Edit" -Property @{ Width = 100; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnEdit = New-Button -Text "Edit" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if ($listMonitors.SelectedItems.Count -gt 0) {
             $m = $listMonitors.SelectedItems[0].Tag
             # Deep clone the monitor object to prevent auto-saving on cancel
@@ -3882,7 +3894,7 @@ function Show-MonitorManager {
         }
     }
 
-    $btnToggle = New-Button -Text "Start/Stop" -Property @{ Width = 110; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnToggle = New-Button -Text "Start/Stop" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if ($listMonitors.SelectedItems.Count -gt 0) {
             $m = $listMonitors.SelectedItems[0].Tag
             if ($m.Status -eq "Running") { $m.Status = "Stopped" } else { $m.Status = "Running"; $m.LastRun = $null }
@@ -3893,11 +3905,18 @@ function Show-MonitorManager {
         }
     }
 
-    $btnDelete = New-Button -Text "Delete" -Property @{ Width = 100; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnDelete = New-Button -Text "Delete" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if ($listMonitors.SelectedItems.Count -gt 0) {
             $m = $listMonitors.SelectedItems[0].Tag
             if ([System.Windows.Forms.MessageBox]::Show("Are you sure you want to delete monitor '$($m.Name)'?", "Confirm Delete", "YesNo", "Warning") -eq "Yes") {
-                $script:monitors = $script:monitors | Where-Object { $_.Id -ne $m.Id }
+                if ($script:monitorJobs -and $script:monitorJobs.ContainsKey($m.Id)) {
+                    try {
+                        $script:monitorJobs[$m.Id].PS.BeginStop([ref]$null, [ref]$null)
+                        $script:monitorJobs[$m.Id].PS.Dispose()
+                        $script:monitorJobs.Remove($m.Id)
+                    } catch {}
+                }
+                $script:monitors = @($script:monitors | Where-Object { $_.Id -ne $m.Id })
                 Save-Monitors
                 Refresh-List
             }
@@ -3906,7 +3925,7 @@ function Show-MonitorManager {
         }
     }
 
-    $btnOpenLog = New-Button -Text "Open Log" -Property @{ Width = 180; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnOpenLog = New-Button -Text "Open Log" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if (Test-Path $monitorLogFilePath) {
             try {
                 Start-Process $monitorLogFilePath
@@ -3918,22 +3937,22 @@ function Show-MonitorManager {
         }
     }
 
-    $btnCharts = New-Button -Text "Visualize" -Property @{ Width = 110; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnCharts = New-Button -Text "Visualize" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         Show-MonitorChartWindow -parentForm $monitorForm
     }
 
-    $btnEmailConfig = New-Button -Text "Email Config" -Property @{ Width = 130; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnEmailConfig = New-Button -Text "Email Config" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         Show-MonitorEmailSettings -parentForm $monitorForm
     }
 
-    $btnClearLog = New-Button -Text "Clear Log" -Property @{ Width = 180; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnClearLog = New-Button -Text "Clear Log" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if ([System.Windows.Forms.MessageBox]::Show("Clear the monitor log file?", "Confirm", "YesNo", "Warning") -eq "Yes") {
             Clear-Content $monitorLogFilePath -ErrorAction SilentlyContinue
             [System.Windows.Forms.MessageBox]::Show("Log cleared.", "Info", "OK", "Information")
         }
     }
 
-    $btnArchiveLog = New-Button -Text "Archive Log" -Property @{ Width = 120; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnArchiveLog = New-Button -Text "Archive Log" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if (Test-Path $monitorLogFilePath) {
             $archiveName = "$monitorLogFilePath.$((Get-Date).ToString('yyyyMMdd-HHmmss')).csv"
             Rename-Item $monitorLogFilePath $archiveName
@@ -3949,6 +3968,7 @@ function Show-MonitorManager {
 }
 
 # --- JWT Tool Window ---
+
 
 function Show-MonitoringDashboard {
     param($parentForm)
@@ -4871,7 +4891,7 @@ function Show-WebSocketClient {
 
     $logBox = New-RichTextBox -ReadOnly $true -Property @{ Dock='Fill'; BackColor='White'; Font=New-Object System.Drawing.Font("Consolas", 9); BorderStyle='None' }
     
-    $bottomPanel = New-Object System.Windows.Forms.Panel -Property @{ Dock='Bottom'; Height=40; Padding=[System.Windows.Forms.Padding]::new(5) }
+    $bottomPanel = New-Object System.Windows.Forms.Panel -Property @{ Dock='Bottom'; Height=45; Padding=[System.Windows.Forms.Padding]::new(5) }
     $txtMsg = New-TextBox -Property @{ Dock='Fill' }
     $btnSend = New-Button -Text "Send" -Style 'Primary' -Property @{ Dock='Right'; Width=90; Enabled=$false }
     $bottomPanel.Controls.AddRange(@($btnSend, $txtMsg))
@@ -4946,6 +4966,7 @@ function Show-WebSocketClient {
 }
 
 # --- gRPC Client Window (Wrapper for grpcurl) ---
+
 
 function New-APIForm {
 

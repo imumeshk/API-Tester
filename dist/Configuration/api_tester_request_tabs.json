@@ -1,0 +1,62 @@
+﻿[
+    {
+        "Id":  "e52bb478-cb29-4f2e-9fa8-568f14dc7260",
+        "Name":  "Request 1",
+        "Method":  "POST",
+        "Url":  "",
+        "Headers":  "",
+        "Body":  "",
+        "BodyType":  "multipart/form-data",
+        "OutputFormat":  "",
+        "Tests":  "",
+        "PreRequestScript":  "",
+        "Environment":  "No Environment",
+        "Authentication":  {
+                               "Type":  "No Auth"
+                           },
+        "GqlQuery":  "",
+        "GqlVars":  "",
+        "IncludeFilename":  true,
+        "IncludeContentType":  true
+    },
+    {
+        "Id":  "fdd2b2b9-e5d2-4764-8fd0-ff6b9fcf8e33",
+        "Name":  "Request 2",
+        "Method":  "POST",
+        "Url":  "",
+        "Headers":  "",
+        "Body":  "",
+        "BodyType":  "multipart/form-data",
+        "OutputFormat":  "",
+        "Tests":  "",
+        "PreRequestScript":  "",
+        "Environment":  "No Environment",
+        "Authentication":  {
+                               "Type":  "No Auth"
+                           },
+        "GqlQuery":  "",
+        "GqlVars":  "",
+        "IncludeFilename":  true,
+        "IncludeContentType":  true
+    },
+    {
+        "Id":  "e8964140-abe3-465a-a609-f45930d30fa0",
+        "Name":  "Request 3",
+        "Method":  "POST",
+        "Url":  "",
+        "Headers":  "",
+        "Body":  "",
+        "BodyType":  "multipart/form-data",
+        "OutputFormat":  "",
+        "Tests":  "",
+        "PreRequestScript":  "",
+        "Environment":  "No Environment",
+        "Authentication":  {
+                               "Type":  "No Auth"
+                           },
+        "GqlQuery":  "",
+        "GqlVars":  "",
+        "IncludeFilename":  true,
+        "IncludeContentType":  true
+    }
+]

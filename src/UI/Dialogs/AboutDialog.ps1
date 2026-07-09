@@ -205,7 +205,8 @@ function Show-AboutDialog {
         }
     } -Property @{
         Location = [System.Drawing.Point]::new(0, 60)
-        Size     = [System.Drawing.Size]::new(160, 32)
+        Size     = [System.Drawing.Size]::new(180, 32)
+        AutoSize = $true
         Visible  = $false
     }
     $btnDownload.Name = "btnDownload"
@@ -213,8 +214,9 @@ function Show-AboutDialog {
     $btnCheck = New-Button -Text "Check for Updates" -Style 'Secondary' -OnClick {
         Invoke-UpdateCheck -StatusLabel $lblUpdateStatus -DownloadButton $btnDownload -ParentForm $aboutForm
     } -Property @{
-        Location = [System.Drawing.Point]::new(170, 60)
-        Size     = [System.Drawing.Size]::new(150, 32)
+        Location = [System.Drawing.Point]::new(190, 60)
+        Size     = [System.Drawing.Size]::new(180, 32)
+        AutoSize = $true
     }
 
     $updatePanel.Controls.AddRange(@($lblUpdateTitle, $lblUpdateStatus, $btnDownload, $btnCheck))
@@ -228,9 +230,10 @@ function Show-AboutDialog {
     }
 
     $btnClose = New-Button -Text "Close" -Style 'Secondary' -OnClick { $aboutForm.Close() } -Property @{
-        Dock   = 'Right'
-        Width  = 80
-        Height = 32
+        Dock     = 'Right'
+        Width    = 100
+        Height   = 32
+        AutoSize = $true
     }
     $footerPanel.Controls.Add($btnClose)
 

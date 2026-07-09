@@ -1,0 +1,26 @@
+{
+    "IntervalSeconds":  60,
+    "Id":  "8729b3c0-5d9c-4ca2-8ca1-f6c443fa0584",
+    "Request":  {
+                    "Body":  "",
+                    "Authentication":  {
+                                           "Type":  "No Auth"
+                                       },
+                    "RequestTimeoutSeconds":  30,
+                    "BodyType":  "multipart/form-data",
+                    "Method":  "GET",
+                    "Url":  "http://",
+                    "Headers":  ""
+                },
+    "Name":  "New Monitor",
+    "LastRun":  null,
+    "Status":  "Stopped",
+    "AnalyticsUrl":  "",
+    "Alerts":  {
+                   "SendEmail":  false,
+                   "OnSlow":  false,
+                   "OnFailure":  true,
+                   "ThresholdMs":  1000,
+                   "EmailTo":  ""
+               }
+}

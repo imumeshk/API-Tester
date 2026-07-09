@@ -24,26 +24,25 @@ function Show-LoadTester {
     # Settings Panel
     $settingsPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Fill'; FlowDirection = 'TopDown' }
     
-    $lblUrl = New-Label -Text "URL:"
+    $lblUrl = New-Label -Text "URL:" -Property @{ AutoSize = $true }
     $txtUrl = New-TextBox -Property @{ Width = 280; Text = if ($RequestObject) { $RequestObject.Url } else { "https://httpbin.org/get" } }
     
-    $lblMethod = New-Label -Text "Method:"
-    $comboMethod = New-Object System.Windows.Forms.ComboBox -Property @{ Width = 100; DropDownStyle = 'DropDownList' }
+    $lblMethod = New-Label -Text "Method:" -Property @{ AutoSize = $true }
+    $comboMethod = New-Object System.Windows.Forms.ComboBox -Property @{ Width = 150; DropDownStyle = 'DropDownList' }
     $comboMethod.Items.AddRange(@("GET", "POST", "PUT", "DELETE", "PATCH"))
     $comboMethod.SelectedItem = if ($RequestObject -and $RequestObject.Method) { $RequestObject.Method } else { "GET" }
 
-    $lblThreads = New-Label -Text "Concurrent Threads:"
-    $numThreads = New-Object System.Windows.Forms.NumericUpDown -Property @{ Minimum = 1; Maximum = 100; Value = 10; Width = 100 }
+    $lblThreads = New-Label -Text "Concurrent Threads:" -Property @{ AutoSize = $true }
+    $numThreads = New-Object System.Windows.Forms.NumericUpDown -Property @{ Minimum = 1; Maximum = 100; Value = 10; Width = 150 }
     
-    $lblDuration = New-Label -Text "Duration (Seconds):"
-    $numDuration = New-Object System.Windows.Forms.NumericUpDown -Property @{ Minimum = 1; Maximum = 3600; Value = 5; Width = 100 }
+    $lblDuration = New-Label -Text "Duration (Seconds):" -Property @{ AutoSize = $true }
+    $numDuration = New-Object System.Windows.Forms.NumericUpDown -Property @{ Minimum = 1; Maximum = 3600; Value = 5; Width = 150 }
 
-    $lblStats = New-Label -Text "Stats:" -Property @{ Margin = [System.Windows.Forms.Padding]::new(0,20,0,0); Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold) }
-    $lblReqCount = New-Label -Text "Requests: 0"
-    $lblSuccess = New-Label -Text "Success: 0"
-    $lblFailed = New-Label -Text "Failed: 0"
-    $lblAvgLat = New-Label -Text "Avg Latency: 0ms"
-
+    $lblStats = New-Label -Text "Stats:" -Property @{ AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0,20,0,0); Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold) }
+    $lblReqCount = New-Label -Text "Requests: 0" -Property @{ AutoSize = $true }
+    $lblSuccess = New-Label -Text "Success: 0" -Property @{ AutoSize = $true }
+    $lblFailed = New-Label -Text "Failed: 0" -Property @{ AutoSize = $true }
+    $lblAvgLat = New-Label -Text "Avg Latency: 0ms" -Property @{ AutoSize = $true }
     $settingsPanel.Controls.AddRange(@($lblUrl, $txtUrl, $lblMethod, $comboMethod, $lblThreads, $numThreads, $lblDuration, $numDuration, $lblStats, $lblReqCount, $lblSuccess, $lblFailed, $lblAvgLat))
     $mainLayout.Controls.Add($settingsPanel, 0, 0)
 
@@ -226,3 +225,7 @@ function Show-LoadTester {
     $testerForm.ShowDialog() | Out-Null
     $testerForm.Dispose()
 }
+
+
+
+

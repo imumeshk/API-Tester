@@ -55,11 +55,11 @@ function Show-GrpcClient {
     
     $txtHost = New-TextBox -Property @{ Dock='Fill'; Text='localhost:50051' }
 
-    $protoPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=1; Margin=[System.Windows.Forms.Padding]::new(0) }
+    $protoPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=1; Margin=[System.Windows.Forms.Padding]::new(0); AutoSize=$true; AutoSizeMode='GrowAndShrink' }
     $protoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
     $protoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $txtProtoFile = New-TextBox -Property @{ Dock='Fill'; PlaceholderText='Optional: Path to .proto file' }
-    $btnBrowseProto = New-Button -Text "Browse" -Property @{ Width=70 } -OnClick {
+    $btnBrowseProto = New-Button -Text "Browse" -Property @{ AutoSize=$true } -OnClick {
         $ofd = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter="Proto Files (*.proto)|*.proto|All Files (*.*)|*.*" }
         if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $txtProtoFile.Text = $ofd.FileName }
     }
@@ -150,7 +150,7 @@ function Show-GrpcClient {
     $inputPanel.Controls.Add($btnExecute, 0, 5)
     $inputPanel.SetColumnSpan($btnExecute, 2)
     
-    $outputTools = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Top'; AutoSize=$true; Padding=[System.Windows.Forms.Padding]::new(0); Margin=[System.Windows.Forms.Padding]::new(0); FlowDirection='LeftToRight'; WrapContents=$false }
+    $outputTools = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Top'; Padding=[System.Windows.Forms.Padding]::new(0); Margin=[System.Windows.Forms.Padding]::new(0); AutoSize=$true; AutoSizeMode='GrowAndShrink'; FlowDirection='LeftToRight'; WrapContents=$false }
     $btnBeautify = New-Button -Text "Beautify JSON" -Style 'Secondary' -Property @{ Width=140; Height=32; Margin=[System.Windows.Forms.Padding]::new(0,0,8,0) } -OnClick {
         if ([string]::IsNullOrWhiteSpace($txtOutput.Text)) { return }
         try {
@@ -160,7 +160,7 @@ function Show-GrpcClient {
             [System.Windows.Forms.MessageBox]::Show("Invalid JSON: $($_.Exception.Message)", "Error", "OK", "Error")
         }
     }
-    $btnDownload = New-Button -Text "Download grpcurl" -Style 'Secondary' -Property @{ Width=160; Height=32; Margin=[System.Windows.Forms.Padding]::new(0,0,8,0) } -OnClick {
+    $btnDownload = New-Button -Text "Download grpcurl" -Style 'Secondary' -Property @{ AutoSize=$true; Height=32; Margin=[System.Windows.Forms.Padding]::new(0,0,8,0) } -OnClick {
         try {
             $txtOutput.Text = "Checking for latest grpcurl release..."
             [System.Windows.Forms.Application]::DoEvents()
@@ -226,3 +226,7 @@ function Show-GrpcClient {
 }
 
 # --- Monitoring Dashboard Window ---
+
+
+
+

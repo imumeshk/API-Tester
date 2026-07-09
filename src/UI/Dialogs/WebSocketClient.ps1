@@ -27,7 +27,7 @@ function Show-WebSocketClient {
 
     $logBox = New-RichTextBox -ReadOnly $true -Property @{ Dock='Fill'; BackColor='White'; Font=New-Object System.Drawing.Font("Consolas", 9); BorderStyle='None' }
     
-    $bottomPanel = New-Object System.Windows.Forms.Panel -Property @{ Dock='Bottom'; Height=40; Padding=[System.Windows.Forms.Padding]::new(5) }
+    $bottomPanel = New-Object System.Windows.Forms.Panel -Property @{ Dock='Bottom'; Height=45; Padding=[System.Windows.Forms.Padding]::new(5) }
     $txtMsg = New-TextBox -Property @{ Dock='Fill' }
     $btnSend = New-Button -Text "Send" -Style 'Primary' -Property @{ Dock='Right'; Width=90; Enabled=$false }
     $bottomPanel.Controls.AddRange(@($btnSend, $txtMsg))
@@ -102,3 +102,4 @@ function Show-WebSocketClient {
 }
 
 # --- gRPC Client Window (Wrapper for grpcurl) ---
+

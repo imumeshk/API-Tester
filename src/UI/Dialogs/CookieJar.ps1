@@ -2,7 +2,8 @@ function Show-CookieJar {
     param($parentForm)
     $form = New-Object System.Windows.Forms.Form -Property @{ Text="Cookie Jar"; Size=New-Object System.Drawing.Size(600, 400); StartPosition="CenterParent"; BackColor=$script:Theme.FormBackground }
     
-    $grid = New-Object System.Windows.Forms.DataGridView -Property @{ Dock='Fill'; ReadOnly=$true; AllowUserToAddRows=$false; RowHeadersVisible=$false; AutoSizeColumnsMode='Fill'; BackgroundColor='White' }
+    $grid = New-Object System.Windows.Forms.DataGridView -Property @{ Dock='Fill'; ReadOnly=$true; AllowUserToAddRows=$false; RowHeadersVisible=$false; AutoSizeColumnsMode = 'Fill'
+        ColumnHeadersHeightSizeMode = 'AutoSize'; BackgroundColor='White' }
     $grid.Columns.Add("Domain", "Domain") | Out-Null
     $grid.Columns.Add("Name", "Name") | Out-Null
     $grid.Columns.Add("Value", "Value") | Out-Null
@@ -82,3 +83,4 @@ function Show-CookieJar {
 
 # Checks GitHub Releases API for a newer version.
 # Populates the $statusLabel and optionally shows the $downloadButton.
+

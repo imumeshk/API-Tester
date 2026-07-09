@@ -35,7 +35,7 @@ function Show-MonitorManager {
     $panelBtn.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
     $panelBtn.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50))) | Out-Null
     
-    $btnAdd = New-Button -Text "Add Monitor..." -Property @{ Width = 130; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnAdd = New-Button -Text "Add Monitor..." -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         $newMonitor = @{
             Id = [Guid]::NewGuid().ToString()
             Name = "New Monitor"
@@ -53,7 +53,7 @@ function Show-MonitorManager {
         }
     }
 
-    $btnEdit = New-Button -Text "Edit" -Property @{ Width = 100; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnEdit = New-Button -Text "Edit" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if ($listMonitors.SelectedItems.Count -gt 0) {
             $m = $listMonitors.SelectedItems[0].Tag
             # Deep clone the monitor object to prevent auto-saving on cancel
@@ -76,7 +76,7 @@ function Show-MonitorManager {
         }
     }
 
-    $btnToggle = New-Button -Text "Start/Stop" -Property @{ Width = 110; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnToggle = New-Button -Text "Start/Stop" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if ($listMonitors.SelectedItems.Count -gt 0) {
             $m = $listMonitors.SelectedItems[0].Tag
             if ($m.Status -eq "Running") { $m.Status = "Stopped" } else { $m.Status = "Running"; $m.LastRun = $null }
@@ -87,11 +87,18 @@ function Show-MonitorManager {
         }
     }
 
-    $btnDelete = New-Button -Text "Delete" -Property @{ Width = 100; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnDelete = New-Button -Text "Delete" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if ($listMonitors.SelectedItems.Count -gt 0) {
             $m = $listMonitors.SelectedItems[0].Tag
             if ([System.Windows.Forms.MessageBox]::Show("Are you sure you want to delete monitor '$($m.Name)'?", "Confirm Delete", "YesNo", "Warning") -eq "Yes") {
-                $script:monitors = $script:monitors | Where-Object { $_.Id -ne $m.Id }
+                if ($script:monitorJobs -and $script:monitorJobs.ContainsKey($m.Id)) {
+                    try {
+                        $script:monitorJobs[$m.Id].PS.BeginStop([ref]$null, [ref]$null)
+                        $script:monitorJobs[$m.Id].PS.Dispose()
+                        $script:monitorJobs.Remove($m.Id)
+                    } catch {}
+                }
+                $script:monitors = @($script:monitors | Where-Object { $_.Id -ne $m.Id })
                 Save-Monitors
                 Refresh-List
             }
@@ -100,7 +107,7 @@ function Show-MonitorManager {
         }
     }
 
-    $btnOpenLog = New-Button -Text "Open Log" -Property @{ Width = 180; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnOpenLog = New-Button -Text "Open Log" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if (Test-Path $monitorLogFilePath) {
             try {
                 Start-Process $monitorLogFilePath
@@ -112,22 +119,22 @@ function Show-MonitorManager {
         }
     }
 
-    $btnCharts = New-Button -Text "Visualize" -Property @{ Width = 110; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnCharts = New-Button -Text "Visualize" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         Show-MonitorChartWindow -parentForm $monitorForm
     }
 
-    $btnEmailConfig = New-Button -Text "Email Config" -Property @{ Width = 130; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnEmailConfig = New-Button -Text "Email Config" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         Show-MonitorEmailSettings -parentForm $monitorForm
     }
 
-    $btnClearLog = New-Button -Text "Clear Log" -Property @{ Width = 180; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnClearLog = New-Button -Text "Clear Log" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if ([System.Windows.Forms.MessageBox]::Show("Clear the monitor log file?", "Confirm", "YesNo", "Warning") -eq "Yes") {
             Clear-Content $monitorLogFilePath -ErrorAction SilentlyContinue
             [System.Windows.Forms.MessageBox]::Show("Log cleared.", "Info", "OK", "Information")
         }
     }
 
-    $btnArchiveLog = New-Button -Text "Archive Log" -Property @{ Width = 120; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
+    $btnArchiveLog = New-Button -Text "Archive Log" -Property @{ AutoSize = $true; Height = 35; Margin = [System.Windows.Forms.Padding]::new(5) } -OnClick {
         if (Test-Path $monitorLogFilePath) {
             $archiveName = "$monitorLogFilePath.$((Get-Date).ToString('yyyyMMdd-HHmmss')).csv"
             Rename-Item $monitorLogFilePath $archiveName
@@ -143,3 +150,4 @@ function Show-MonitorManager {
 }
 
 # --- JWT Tool Window ---
+
