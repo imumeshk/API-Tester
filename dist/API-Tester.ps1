@@ -2376,6 +2376,106 @@ function Show-CookieJar {
 # Checks GitHub Releases API for a newer version.
 # Populates the $statusLabel and optionally shows the $downloadButton.
 
+function Show-DiffViewer {
+    param(
+        [PSCustomObject]$Request1,
+        [PSCustomObject]$Request2,
+        [System.Windows.Forms.Form]$parentForm
+    )
+
+    $diffForm = New-Object System.Windows.Forms.Form -Property @{
+        Text = "Diff Viewer - Compare Responses"
+        Size = New-Object System.Drawing.Size(1000, 700)
+        StartPosition = "CenterParent"
+    }
+
+    $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
+        Dock = 'Fill'
+        ColumnCount = 1
+        RowCount = 2
+        Padding = [System.Windows.Forms.Padding]::new(10)
+    }
+    $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 40))) | Out-Null
+    $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+
+    $headerPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Fill'; ColumnCount = 2; RowCount = 1 }
+    $headerPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50))) | Out-Null
+    $headerPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50))) | Out-Null
+
+    $lblReq1 = New-Label -Text "Old: [$($Request1.Method)] $($Request1.Url) ($($Request1.Timestamp))" -Property @{ Dock = 'Fill'; Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold) }
+    $lblReq2 = New-Label -Text "New: [$($Request2.Method)] $($Request2.Url) ($($Request2.Timestamp))" -Property @{ Dock = 'Fill'; Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold) }
+    
+    $headerPanel.Controls.Add($lblReq1, 0, 0)
+    $headerPanel.Controls.Add($lblReq2, 1, 0)
+
+    $rtbDiff = New-Object System.Windows.Forms.RichTextBox -Property @{
+        Dock = 'Fill'
+        Font = New-Object System.Drawing.Font("Consolas", 10)
+        ReadOnly = $true
+        WordWrap = $false
+        ScrollBars = 'Both'
+    }
+
+    $mainLayout.Controls.Add($headerPanel, 0, 0)
+    $mainLayout.Controls.Add($rtbDiff, 0, 1)
+    $diffForm.Controls.Add($mainLayout)
+
+    # Theme
+    if ($script:Theme) {
+        $diffForm.BackColor = $script:Theme.FormBackground
+        $rtbDiff.BackColor = $script:Theme.TextBoxBackground
+        $rtbDiff.ForeColor = $script:Theme.TextColor
+        $lblReq1.ForeColor = $script:Theme.TextColor
+        $lblReq2.ForeColor = $script:Theme.TextColor
+    }
+
+    # Diff Logic
+    function Format-ForDiff($body) {
+        if (-not $body) { return @() }
+        # Try JSON pretty print
+        try {
+            $json = $body | ConvertFrom-Json -ErrorAction Stop
+            return ($json | ConvertTo-Json -Depth 10) -split "`r?`n"
+        } catch {
+            return $body -split "`r?`n"
+        }
+    }
+
+    $lines1 = Format-ForDiff $Request1.ResponseBody
+    $lines2 = Format-ForDiff $Request2.ResponseBody
+
+    $diff = Compare-Object -ReferenceObject $lines1 -DifferenceObject $lines2 -IncludeEqual
+
+    $diffForm.Add_Shown({
+        $rtbDiff.SuspendLayout()
+        foreach ($item in $diff) {
+            $text = ""
+            $color = [System.Drawing.Color]::Gray
+
+            if ($item.SideIndicator -eq "==") {
+                $text = "  " + $item.InputObject + "`n"
+                $color = if ($script:Theme) { $script:Theme.TextColor } else { [System.Drawing.Color]::Black }
+            } elseif ($item.SideIndicator -eq "<=") {
+                $text = "- " + $item.InputObject + "`n"
+                $color = [System.Drawing.Color]::IndianRed
+            } elseif ($item.SideIndicator -eq "=>") {
+                $text = "+ " + $item.InputObject + "`n"
+                $color = [System.Drawing.Color]::MediumSeaGreen
+            }
+
+            $rtbDiff.SelectionStart = $rtbDiff.TextLength
+            $rtbDiff.SelectionLength = 0
+            $rtbDiff.SelectionColor = $color
+            $rtbDiff.AppendText($text)
+        }
+        $rtbDiff.SelectionStart = 0
+        $rtbDiff.ResumeLayout()
+    })
+
+    $diffForm.ShowDialog() | Out-Null
+    $diffForm.Dispose()
+}
+
 function Show-EnvironmentEditor {
     param(
         [System.Windows.Forms.Form]$parentForm,
@@ -2591,10 +2691,11 @@ function Show-GrpcClient {
     $split = New-Object System.Windows.Forms.SplitContainer -Property @{ Dock='Fill'; Orientation='Horizontal'; SplitterDistance=330; BackColor=$script:Theme.FormBackground }
     
     # Input Panel
-    $inputPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=6; Padding=[System.Windows.Forms.Padding]::new(8) }
+    $inputPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=7; Padding=[System.Windows.Forms.Padding]::new(8) }
     $inputPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $inputPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
     
+    $inputPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $inputPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $inputPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $inputPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 30)))
@@ -2603,16 +2704,28 @@ function Show-GrpcClient {
     $inputPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize)))
     
     $txtHost = New-TextBox -Property @{ Dock='Fill'; Text='localhost:50051' }
+
+    $protoPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=1; Margin=[System.Windows.Forms.Padding]::new(0) }
+    $protoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
+    $protoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
+    $txtProtoFile = New-TextBox -Property @{ Dock='Fill'; PlaceholderText='Optional: Path to .proto file' }
+    $btnBrowseProto = New-Button -Text "Browse" -Property @{ Width=70 } -OnClick {
+        $ofd = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter="Proto Files (*.proto)|*.proto|All Files (*.*)|*.*" }
+        if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $txtProtoFile.Text = $ofd.FileName }
+    }
+    $protoPanel.Controls.Add($txtProtoFile, 0, 0); $protoPanel.Controls.Add($btnBrowseProto, 1, 0)
+
     $txtMethod = New-TextBox -Property @{ Dock='Fill'; Text='MyService/SayHello' }
     $txtHeaders = New-TextBox -Multiline $true -Property @{ Dock='Fill'; Text=''; Font=New-Object System.Drawing.Font("Courier New", 9); ScrollBars='Vertical' }
     $txtBody = New-TextBox -Multiline $true -Property @{ Dock='Fill'; Height=150; Text='{ "name": "World" }'; Font=New-Object System.Drawing.Font("Courier New", 9); ScrollBars='Vertical' }
     $chkPlaintext = New-Object System.Windows.Forms.CheckBox -Property @{ Text="Plaintext (-plaintext)"; AutoSize=$true; Checked=$true; Margin=[System.Windows.Forms.Padding]::new(0,8,0,0) }
     
     $inputPanel.Controls.Add((New-Label -Text "Host:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 0); $inputPanel.Controls.Add($txtHost, 1, 0)
-    $inputPanel.Controls.Add((New-Label -Text "Method:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 1); $inputPanel.Controls.Add($txtMethod, 1, 1)
-    $inputPanel.Controls.Add((New-Label -Text "Headers:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 2); $inputPanel.Controls.Add($txtHeaders, 1, 2)
-    $inputPanel.Controls.Add((New-Label -Text "JSON Body:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 3); $inputPanel.Controls.Add($txtBody, 1, 3)
-    $inputPanel.Controls.Add($chkPlaintext, 0, 4); $inputPanel.SetColumnSpan($chkPlaintext, 2)
+    $inputPanel.Controls.Add((New-Label -Text "Proto File:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 1); $inputPanel.Controls.Add($protoPanel, 1, 1)
+    $inputPanel.Controls.Add((New-Label -Text "Method:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 2); $inputPanel.Controls.Add($txtMethod, 1, 2)
+    $inputPanel.Controls.Add((New-Label -Text "Headers:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 3); $inputPanel.Controls.Add($txtHeaders, 1, 3)
+    $inputPanel.Controls.Add((New-Label -Text "JSON Body:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 4); $inputPanel.Controls.Add($txtBody, 1, 4)
+    $inputPanel.Controls.Add($chkPlaintext, 0, 5); $inputPanel.SetColumnSpan($chkPlaintext, 2)
     
     $btnExecute = New-Button -Text "Execute gRPC" -Style 'Primary' -Property @{ Height=38; Dock='Fill'; Margin=[System.Windows.Forms.Padding]::new(0,10,0,0) } -OnClick {
         $txtOutput.Text = "Executing..."
@@ -2638,6 +2751,12 @@ function Show-GrpcClient {
 
         $argsList = @()
         if ($chkPlaintext.Checked) { $argsList += "-plaintext" }
+
+        if (-not [string]::IsNullOrWhiteSpace($txtProtoFile.Text) -and (Test-Path $txtProtoFile.Text)) {
+            $protoDir = Split-Path $txtProtoFile.Text
+            $protoName = Split-Path $txtProtoFile.Text -Leaf
+            $argsList += "-import-path", "`"$protoDir`"", "-proto", "`"$protoName`""
+        }
         
         # Add Headers
         if (-not [string]::IsNullOrWhiteSpace($txtHeaders.Text)) {
@@ -2889,6 +3008,235 @@ function Show-JwtTool {
 }
 
 # --- REFACTORED: Environment Manager Window (now uses the top-level editor) ---
+
+function Show-LoadTester {
+    param(
+        [PSCustomObject]$RequestObject,
+        [System.Windows.Forms.Form]$parentForm
+    )
+
+    Add-Type -AssemblyName System.Windows.Forms.DataVisualization -ErrorAction SilentlyContinue
+
+    $testerForm = New-Object System.Windows.Forms.Form -Property @{
+        Text = "Load Tester"
+        Size = New-Object System.Drawing.Size(900, 600)
+        StartPosition = "CenterParent"
+    }
+
+    $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
+        Dock = 'Fill'; ColumnCount = 2; RowCount = 2
+        Padding = [System.Windows.Forms.Padding]::new(10)
+    }
+    $mainLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 300))) | Out-Null
+    $mainLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+    $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+    $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 60))) | Out-Null
+
+    # Settings Panel
+    $settingsPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Fill'; FlowDirection = 'TopDown' }
+    
+    $lblUrl = New-Label -Text "URL:"
+    $txtUrl = New-TextBox -Property @{ Width = 280; Text = if ($RequestObject) { $RequestObject.Url } else { "https://httpbin.org/get" } }
+    
+    $lblMethod = New-Label -Text "Method:"
+    $comboMethod = New-Object System.Windows.Forms.ComboBox -Property @{ Width = 100; DropDownStyle = 'DropDownList' }
+    $comboMethod.Items.AddRange(@("GET", "POST", "PUT", "DELETE", "PATCH"))
+    $comboMethod.SelectedItem = if ($RequestObject -and $RequestObject.Method) { $RequestObject.Method } else { "GET" }
+
+    $lblThreads = New-Label -Text "Concurrent Threads:"
+    $numThreads = New-Object System.Windows.Forms.NumericUpDown -Property @{ Minimum = 1; Maximum = 100; Value = 10; Width = 100 }
+    
+    $lblDuration = New-Label -Text "Duration (Seconds):"
+    $numDuration = New-Object System.Windows.Forms.NumericUpDown -Property @{ Minimum = 1; Maximum = 3600; Value = 5; Width = 100 }
+
+    $lblStats = New-Label -Text "Stats:" -Property @{ Margin = [System.Windows.Forms.Padding]::new(0,20,0,0); Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold) }
+    $lblReqCount = New-Label -Text "Requests: 0"
+    $lblSuccess = New-Label -Text "Success: 0"
+    $lblFailed = New-Label -Text "Failed: 0"
+    $lblAvgLat = New-Label -Text "Avg Latency: 0ms"
+
+    $settingsPanel.Controls.AddRange(@($lblUrl, $txtUrl, $lblMethod, $comboMethod, $lblThreads, $numThreads, $lblDuration, $numDuration, $lblStats, $lblReqCount, $lblSuccess, $lblFailed, $lblAvgLat))
+    $mainLayout.Controls.Add($settingsPanel, 0, 0)
+
+    # Chart Panel
+    $chart = New-Object System.Windows.Forms.DataVisualization.Charting.Chart -Property @{ Dock = 'Fill' }
+    $chartArea = New-Object System.Windows.Forms.DataVisualization.Charting.ChartArea
+    $chart.ChartAreas.Add($chartArea)
+
+    $seriesRps = New-Object System.Windows.Forms.DataVisualization.Charting.Series -Property @{
+        Name = "Requests/Sec"
+        ChartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::Line
+        BorderWidth = 2
+        Color = [System.Drawing.Color]::DodgerBlue
+    }
+    $seriesLat = New-Object System.Windows.Forms.DataVisualization.Charting.Series -Property @{
+        Name = "Latency (ms)"
+        ChartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::Line
+        BorderWidth = 2
+        Color = [System.Drawing.Color]::Orange
+        YAxisType = [System.Windows.Forms.DataVisualization.Charting.AxisType]::Secondary
+    }
+    $chart.Series.Add($seriesRps)
+    $chart.Series.Add($seriesLat)
+
+    $chart.Legends.Add((New-Object System.Windows.Forms.DataVisualization.Charting.Legend))
+
+    $mainLayout.Controls.Add($chart, 1, 0)
+
+    # Buttons
+    $btnPanel = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock = 'Fill'; FlowDirection = 'RightToLeft' }
+    $mainLayout.SetColumnSpan($btnPanel, 2)
+
+    $btnStart = New-Button -Text "Start Test" -Style 'Primary' -Property @{ Width = 120 }
+    $btnStop = New-Button -Text "Stop" -Style 'Danger' -Property @{ Width = 100; Enabled = $false }
+    $btnPanel.Controls.AddRange(@($btnStart, $btnStop))
+    $mainLayout.Controls.Add($btnPanel, 0, 1)
+
+    $testerForm.Controls.Add($mainLayout)
+
+    # Theme
+    if ($script:Theme) {
+        $testerForm.BackColor = $script:Theme.FormBackground
+        $settingsPanel.BackColor = $script:Theme.GroupBackground
+        $chart.BackColor = $script:Theme.GroupBackground
+        $chartArea.BackColor = $script:Theme.GroupBackground
+        $chartArea.AxisX.LabelStyle.ForeColor = $script:Theme.TextColor
+        $chartArea.AxisY.LabelStyle.ForeColor = $script:Theme.TextColor
+        $chartArea.AxisY2.LabelStyle.ForeColor = $script:Theme.TextColor
+        $chart.Legends[0].BackColor = $script:Theme.GroupBackground
+        $chart.Legends[0].ForeColor = $script:Theme.TextColor
+        $txtUrl.BackColor = $script:Theme.TextBoxBackground
+        $txtUrl.ForeColor = $script:Theme.TextColor
+        $comboMethod.BackColor = $script:Theme.TextBoxBackground
+        $comboMethod.ForeColor = $script:Theme.TextColor
+        
+        foreach ($ctrl in $settingsPanel.Controls) {
+            if ($ctrl -is [System.Windows.Forms.Label]) { $ctrl.ForeColor = $script:Theme.TextColor }
+        }
+    }
+
+    # Load Testing Engine Variables
+    $script:loadTestRunspacePool = $null
+    $script:loadTestJobs = @()
+    $script:loadTestTimer = $null
+    $script:loadTestIsRunning = $false
+    $script:loadTestStartTime = $null
+
+    # Thread-safe hashtable for stats
+    $script:loadTestStats = [hashtable]::Synchronized(@{
+        TotalRequests = 0
+        Success = 0
+        Failed = 0
+        TotalLatency = 0
+    })
+
+    $btnStart.Add_Click({
+        $btnStart.Enabled = $false
+        $btnStop.Enabled = $true
+        $script:loadTestIsRunning = $true
+        
+        $script:loadTestStats.TotalRequests = 0
+        $script:loadTestStats.Success = 0
+        $script:loadTestStats.Failed = 0
+        $script:loadTestStats.TotalLatency = 0
+
+        $seriesRps.Points.Clear()
+        $seriesLat.Points.Clear()
+
+        $threadCount = [int]$numThreads.Value
+        $script:loadTestRunspacePool = [runspacefactory]::CreateRunspacePool(1, $threadCount)
+        $script:loadTestRunspacePool.Open()
+
+        $url = $txtUrl.Text
+        $method = $comboMethod.SelectedItem
+        $headers = if ($RequestObject -and $RequestObject.Headers) { $RequestObject.Headers } else { @{} }
+        $body = if ($RequestObject -and $RequestObject.Body) { $RequestObject.Body } else { "" }
+        $durationSeconds = [int]$numDuration.Value
+        $script:loadTestStartTime = [DateTime]::Now
+
+        $scriptBlock = {
+            param($url, $method, $headers, $body, $duration, $startTime, $stats)
+            $stopTime = $startTime.AddSeconds($duration)
+            while ([DateTime]::Now -lt $stopTime) {
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                try {
+                    if ($method -in @('POST','PUT','PATCH') -and $body) {
+                        Invoke-WebRequest -Uri $url -Method $method -Body $body -Headers $headers -UseBasicParsing -ErrorAction Stop | Out-Null
+                    } else {
+                        Invoke-WebRequest -Uri $url -Method $method -Headers $headers -UseBasicParsing -ErrorAction Stop | Out-Null
+                    }
+                    $sw.Stop()
+                    $stats.Success++
+                } catch {
+                    $sw.Stop()
+                    $stats.Failed++
+                }
+                $stats.TotalRequests++
+                $stats.TotalLatency += $sw.ElapsedMilliseconds
+            }
+        }
+
+        $script:loadTestJobs = @()
+        for ($i = 0; $i -lt $threadCount; $i++) {
+            $ps = [powershell]::Create().AddScript($scriptBlock).AddArgument($url).AddArgument($method).AddArgument($headers).AddArgument($body).AddArgument($durationSeconds).AddArgument($script:loadTestStartTime).AddArgument($script:loadTestStats)
+            $ps.RunspacePool = $script:loadTestRunspacePool
+            $script:loadTestJobs += [PSCustomObject]@{ PS = $ps; Handle = $ps.BeginInvoke() }
+        }
+
+        $script:loadTestTimer = New-Object System.Windows.Forms.Timer
+        $script:loadTestTimer.Interval = 1000
+        $script:loadTestTimer.Add_Tick({
+            $lblReqCount.Text = "Requests: $($script:loadTestStats.TotalRequests)"
+            $lblSuccess.Text = "Success: $($script:loadTestStats.Success)"
+            $lblFailed.Text = "Failed: $($script:loadTestStats.Failed)"
+            
+            $reqCount = $script:loadTestStats.TotalRequests
+            $avgLat = if ($reqCount -gt 0) { [math]::Round($script:loadTestStats.TotalLatency / $reqCount, 2) } else { 0 }
+            $lblAvgLat.Text = "Avg Latency: $($avgLat)ms"
+
+            $elapsedSeconds = ([DateTime]::Now - $script:loadTestStartTime).TotalSeconds
+            $rps = if ($elapsedSeconds -gt 0) { [math]::Round($reqCount / $elapsedSeconds, 2) } else { 0 }
+
+            $seriesRps.Points.AddY($rps) | Out-Null
+            $seriesLat.Points.AddY($avgLat) | Out-Null
+            $chart.Invalidate()
+
+            # Check if done
+            $allDone = $true
+            foreach ($job in $script:loadTestJobs) {
+                if ($job.Handle.IsCompleted -eq $false) { $allDone = $false }
+            }
+
+            if ($allDone -or ([DateTime]::Now -ge $script:loadTestStartTime.AddSeconds($durationSeconds))) {
+                $btnStop.PerformClick()
+            }
+        })
+        $script:loadTestTimer.Start()
+    })
+
+    $btnStop.Add_Click({
+        $script:loadTestIsRunning = $false
+        if ($script:loadTestTimer) { $script:loadTestTimer.Stop(); $script:loadTestTimer.Dispose() }
+        foreach ($job in $script:loadTestJobs) {
+            try { $job.PS.Stop() } catch {}
+            try { $job.PS.Dispose() } catch {}
+        }
+        if ($script:loadTestRunspacePool) {
+            try { $script:loadTestRunspacePool.Close(); $script:loadTestRunspacePool.Dispose() } catch {}
+        }
+        $btnStart.Enabled = $true
+        $btnStop.Enabled = $false
+    })
+
+    $testerForm.Add_FormClosing({
+        if ($script:loadTestIsRunning) {
+            $btnStop.PerformClick()
+        }
+    })
+
+    $testerForm.ShowDialog() | Out-Null
+    $testerForm.Dispose()
+}
 
 function Show-LogViewer {
     param($parentForm)    
@@ -6679,6 +7027,9 @@ function Invoke-RequestExecution {
 
     $grpcMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("gRPC Client...", $null, { Show-GrpcClient -parentForm $form })
     $toolsMenu.DropDownItems.Add($grpcMenuItem)
+    
+    $loadTesterMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Load Tester...", $null, { Show-LoadTester -parentForm $form })
+    $toolsMenu.DropDownItems.Add($loadTesterMenuItem)
 
     $menuStrip.Items.Add($toolsMenu)
 
@@ -9597,7 +9948,15 @@ function Invoke-RequestExecution {
         }
     })
 
-    $collectionsContextMenu.Items.AddRange(@($addCollectionMenuItem, $addFolderMenuItem, $saveRequestMenuItem, $editCollectionVarsMenuItem, (New-Object System.Windows.Forms.ToolStripSeparator), $runCollectionMenuItem, $importOpenApiMenuItem, $renameMenuItem, $deleteMenuItem, $exportFolderMenuItem))
+    $loadTestContextMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Load Test...", $null, {
+        $selectedNode = $treeViewCollections.SelectedNode
+        if ($selectedNode -and $selectedNode.Tag.Type -eq "Request") {
+            $reqObj = Get-RequestObjectFromItem -Item $selectedNode.Tag
+            Show-LoadTester -RequestObject $reqObj -parentForm $form
+        }
+    })
+
+    $collectionsContextMenu.Items.AddRange(@($addCollectionMenuItem, $addFolderMenuItem, $saveRequestMenuItem, $editCollectionVarsMenuItem, (New-Object System.Windows.Forms.ToolStripSeparator), $runCollectionMenuItem, $loadTestContextMenuItem, $importOpenApiMenuItem, $renameMenuItem, $deleteMenuItem, $exportFolderMenuItem))
     $treeViewCollections.ContextMenuStrip = $collectionsContextMenu
 
     $collectionsContextMenu.Add_Opening({
@@ -9609,6 +9968,7 @@ function Invoke-RequestExecution {
         $deleteMenuItem.Enabled = $false
         $runCollectionMenuItem.Enabled = $false
         $exportFolderMenuItem.Enabled = $false
+        $loadTestContextMenuItem.Enabled = $false
         $importOpenApiMenuItem.Enabled = $true # Always enabled so users can import into root
 
         if ($selectedNode) {
@@ -9623,6 +9983,9 @@ function Invoke-RequestExecution {
             }
             if ($itemType -eq "Collection") {
                 $editCollectionVarsMenuItem.Enabled = $true
+            }
+            if ($itemType -eq "Request") {
+                $loadTestContextMenuItem.Enabled = $true
             }
         }
     })
@@ -9795,6 +10158,7 @@ function Invoke-RequestExecution {
     $listHistory = New-Object System.Windows.Forms.ListBox -Property @{
         Dock = [System.Windows.Forms.DockStyle]::Fill
         BorderStyle = [System.Windows.Forms.BorderStyle]::None
+        SelectionMode = [System.Windows.Forms.SelectionMode]::MultiExtended
     }
     
     # Refactored: Use a Panel with Docking strategy consistent with Collections tab
@@ -9830,9 +10194,19 @@ function Invoke-RequestExecution {
         }
     }
     $panelHistoryBottom.Controls.AddRange(@($btnClearHistory, $btnExportHistory))
-    $tabHistory.Controls.AddRange(@($listHistory, $searchHistoryPanel, $panelHistoryBottom))
+    $tabHistory.Controls.AddRange(@($listHistory, $panelHistoryBottom, $searchHistoryPanel))
 
     $historyContextMenu = New-Object System.Windows.Forms.ContextMenuStrip
+
+    $compareHistoryItem = New-Object System.Windows.Forms.ToolStripMenuItem("Compare Responses", $null, {
+        if ($listHistory.SelectedItems.Count -eq 2) {
+            $req1 = $listHistory.SelectedItems[0].Value
+            $req2 = $listHistory.SelectedItems[1].Value
+            Show-DiffViewer -Request1 $req1 -Request2 $req2 -parentForm $form
+        }
+    })
+    $compareHistoryItem.Enabled = $false
+
     $duplicateHistoryItem = New-Object System.Windows.Forms.ToolStripMenuItem("Duplicate", $null, {
         $selectedItem = $listHistory.SelectedItem
         if ($selectedItem) {
@@ -9891,7 +10265,7 @@ function Invoke-RequestExecution {
         }
     })
 
-    $historyContextMenu.Items.AddRange(@($duplicateHistoryItem, $copyAsCurlMenuItem, $copyAsPSMenuItem, $copyAsPythonMenuItem, $copyAsCSharpMenuItem, $deleteHistoryItem))
+    $historyContextMenu.Items.AddRange(@($compareHistoryItem, $duplicateHistoryItem, $copyAsCurlMenuItem, $copyAsPSMenuItem, $copyAsPythonMenuItem, $copyAsCSharpMenuItem, $deleteHistoryItem))
     $listHistory.ContextMenuStrip = $historyContextMenu
 
     $listHistory.Add_MouseDown({
@@ -9899,12 +10273,25 @@ function Invoke-RequestExecution {
         if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
             $index = $listHistory.IndexFromPoint($e.Location)
             if ($index -ne [System.Windows.Forms.ListBox]::NoMatches) {
-                $listHistory.SelectedIndex = $index
+                if (-not $listHistory.SelectedIndices.Contains($index)) {
+                    $listHistory.ClearSelected()
+                    $listHistory.SelectedIndex = $index
+                }
+            } else {
+                $listHistory.ClearSelected()
             }
         }
     })
     $historyContextMenu.Add_Opening({
-        $_.Cancel = ($listHistory.SelectedIndex -eq -1)
+        $_.Cancel = ($listHistory.SelectedItems.Count -eq 0)
+        $compareHistoryItem.Enabled = ($listHistory.SelectedItems.Count -eq 2)
+        
+        $singleSelectOnly = ($listHistory.SelectedItems.Count -eq 1)
+        $duplicateHistoryItem.Enabled = $singleSelectOnly
+        $copyAsCurlMenuItem.Enabled = $singleSelectOnly
+        $copyAsPSMenuItem.Enabled = $singleSelectOnly
+        $copyAsPythonMenuItem.Enabled = $singleSelectOnly
+        $copyAsCSharpMenuItem.Enabled = $singleSelectOnly
     })
 
     # Central function to load a request object into the UI fields

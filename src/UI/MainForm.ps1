@@ -2090,6 +2090,9 @@ function Invoke-RequestExecution {
 
     $grpcMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("gRPC Client...", $null, { Show-GrpcClient -parentForm $form })
     $toolsMenu.DropDownItems.Add($grpcMenuItem)
+    
+    $loadTesterMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Load Tester...", $null, { Show-LoadTester -parentForm $form })
+    $toolsMenu.DropDownItems.Add($loadTesterMenuItem)
 
     $menuStrip.Items.Add($toolsMenu)
 
@@ -5008,7 +5011,15 @@ function Invoke-RequestExecution {
         }
     })
 
-    $collectionsContextMenu.Items.AddRange(@($addCollectionMenuItem, $addFolderMenuItem, $saveRequestMenuItem, $editCollectionVarsMenuItem, (New-Object System.Windows.Forms.ToolStripSeparator), $runCollectionMenuItem, $importOpenApiMenuItem, $renameMenuItem, $deleteMenuItem, $exportFolderMenuItem))
+    $loadTestContextMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem("Load Test...", $null, {
+        $selectedNode = $treeViewCollections.SelectedNode
+        if ($selectedNode -and $selectedNode.Tag.Type -eq "Request") {
+            $reqObj = Get-RequestObjectFromItem -Item $selectedNode.Tag
+            Show-LoadTester -RequestObject $reqObj -parentForm $form
+        }
+    })
+
+    $collectionsContextMenu.Items.AddRange(@($addCollectionMenuItem, $addFolderMenuItem, $saveRequestMenuItem, $editCollectionVarsMenuItem, (New-Object System.Windows.Forms.ToolStripSeparator), $runCollectionMenuItem, $loadTestContextMenuItem, $importOpenApiMenuItem, $renameMenuItem, $deleteMenuItem, $exportFolderMenuItem))
     $treeViewCollections.ContextMenuStrip = $collectionsContextMenu
 
     $collectionsContextMenu.Add_Opening({
@@ -5020,6 +5031,7 @@ function Invoke-RequestExecution {
         $deleteMenuItem.Enabled = $false
         $runCollectionMenuItem.Enabled = $false
         $exportFolderMenuItem.Enabled = $false
+        $loadTestContextMenuItem.Enabled = $false
         $importOpenApiMenuItem.Enabled = $true # Always enabled so users can import into root
 
         if ($selectedNode) {
@@ -5034,6 +5046,9 @@ function Invoke-RequestExecution {
             }
             if ($itemType -eq "Collection") {
                 $editCollectionVarsMenuItem.Enabled = $true
+            }
+            if ($itemType -eq "Request") {
+                $loadTestContextMenuItem.Enabled = $true
             }
         }
     })
@@ -5206,6 +5221,7 @@ function Invoke-RequestExecution {
     $listHistory = New-Object System.Windows.Forms.ListBox -Property @{
         Dock = [System.Windows.Forms.DockStyle]::Fill
         BorderStyle = [System.Windows.Forms.BorderStyle]::None
+        SelectionMode = [System.Windows.Forms.SelectionMode]::MultiExtended
     }
     
     # Refactored: Use a Panel with Docking strategy consistent with Collections tab
@@ -5241,9 +5257,19 @@ function Invoke-RequestExecution {
         }
     }
     $panelHistoryBottom.Controls.AddRange(@($btnClearHistory, $btnExportHistory))
-    $tabHistory.Controls.AddRange(@($listHistory, $searchHistoryPanel, $panelHistoryBottom))
+    $tabHistory.Controls.AddRange(@($listHistory, $panelHistoryBottom, $searchHistoryPanel))
 
     $historyContextMenu = New-Object System.Windows.Forms.ContextMenuStrip
+
+    $compareHistoryItem = New-Object System.Windows.Forms.ToolStripMenuItem("Compare Responses", $null, {
+        if ($listHistory.SelectedItems.Count -eq 2) {
+            $req1 = $listHistory.SelectedItems[0].Value
+            $req2 = $listHistory.SelectedItems[1].Value
+            Show-DiffViewer -Request1 $req1 -Request2 $req2 -parentForm $form
+        }
+    })
+    $compareHistoryItem.Enabled = $false
+
     $duplicateHistoryItem = New-Object System.Windows.Forms.ToolStripMenuItem("Duplicate", $null, {
         $selectedItem = $listHistory.SelectedItem
         if ($selectedItem) {
@@ -5302,7 +5328,7 @@ function Invoke-RequestExecution {
         }
     })
 
-    $historyContextMenu.Items.AddRange(@($duplicateHistoryItem, $copyAsCurlMenuItem, $copyAsPSMenuItem, $copyAsPythonMenuItem, $copyAsCSharpMenuItem, $deleteHistoryItem))
+    $historyContextMenu.Items.AddRange(@($compareHistoryItem, $duplicateHistoryItem, $copyAsCurlMenuItem, $copyAsPSMenuItem, $copyAsPythonMenuItem, $copyAsCSharpMenuItem, $deleteHistoryItem))
     $listHistory.ContextMenuStrip = $historyContextMenu
 
     $listHistory.Add_MouseDown({
@@ -5310,12 +5336,25 @@ function Invoke-RequestExecution {
         if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
             $index = $listHistory.IndexFromPoint($e.Location)
             if ($index -ne [System.Windows.Forms.ListBox]::NoMatches) {
-                $listHistory.SelectedIndex = $index
+                if (-not $listHistory.SelectedIndices.Contains($index)) {
+                    $listHistory.ClearSelected()
+                    $listHistory.SelectedIndex = $index
+                }
+            } else {
+                $listHistory.ClearSelected()
             }
         }
     })
     $historyContextMenu.Add_Opening({
-        $_.Cancel = ($listHistory.SelectedIndex -eq -1)
+        $_.Cancel = ($listHistory.SelectedItems.Count -eq 0)
+        $compareHistoryItem.Enabled = ($listHistory.SelectedItems.Count -eq 2)
+        
+        $singleSelectOnly = ($listHistory.SelectedItems.Count -eq 1)
+        $duplicateHistoryItem.Enabled = $singleSelectOnly
+        $copyAsCurlMenuItem.Enabled = $singleSelectOnly
+        $copyAsPSMenuItem.Enabled = $singleSelectOnly
+        $copyAsPythonMenuItem.Enabled = $singleSelectOnly
+        $copyAsCSharpMenuItem.Enabled = $singleSelectOnly
     })
 
     # Central function to load a request object into the UI fields

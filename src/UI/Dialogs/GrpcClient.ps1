@@ -41,10 +41,11 @@ function Show-GrpcClient {
     $split = New-Object System.Windows.Forms.SplitContainer -Property @{ Dock='Fill'; Orientation='Horizontal'; SplitterDistance=330; BackColor=$script:Theme.FormBackground }
     
     # Input Panel
-    $inputPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=6; Padding=[System.Windows.Forms.Padding]::new(8) }
+    $inputPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=7; Padding=[System.Windows.Forms.Padding]::new(8) }
     $inputPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $inputPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
     
+    $inputPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $inputPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $inputPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize)))
     $inputPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 30)))
@@ -53,16 +54,28 @@ function Show-GrpcClient {
     $inputPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize)))
     
     $txtHost = New-TextBox -Property @{ Dock='Fill'; Text='localhost:50051' }
+
+    $protoPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock='Fill'; ColumnCount=2; RowCount=1; Margin=[System.Windows.Forms.Padding]::new(0) }
+    $protoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
+    $protoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
+    $txtProtoFile = New-TextBox -Property @{ Dock='Fill'; PlaceholderText='Optional: Path to .proto file' }
+    $btnBrowseProto = New-Button -Text "Browse" -Property @{ Width=70 } -OnClick {
+        $ofd = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter="Proto Files (*.proto)|*.proto|All Files (*.*)|*.*" }
+        if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $txtProtoFile.Text = $ofd.FileName }
+    }
+    $protoPanel.Controls.Add($txtProtoFile, 0, 0); $protoPanel.Controls.Add($btnBrowseProto, 1, 0)
+
     $txtMethod = New-TextBox -Property @{ Dock='Fill'; Text='MyService/SayHello' }
     $txtHeaders = New-TextBox -Multiline $true -Property @{ Dock='Fill'; Text=''; Font=New-Object System.Drawing.Font("Courier New", 9); ScrollBars='Vertical' }
     $txtBody = New-TextBox -Multiline $true -Property @{ Dock='Fill'; Height=150; Text='{ "name": "World" }'; Font=New-Object System.Drawing.Font("Courier New", 9); ScrollBars='Vertical' }
     $chkPlaintext = New-Object System.Windows.Forms.CheckBox -Property @{ Text="Plaintext (-plaintext)"; AutoSize=$true; Checked=$true; Margin=[System.Windows.Forms.Padding]::new(0,8,0,0) }
     
     $inputPanel.Controls.Add((New-Label -Text "Host:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 0); $inputPanel.Controls.Add($txtHost, 1, 0)
-    $inputPanel.Controls.Add((New-Label -Text "Method:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 1); $inputPanel.Controls.Add($txtMethod, 1, 1)
-    $inputPanel.Controls.Add((New-Label -Text "Headers:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 2); $inputPanel.Controls.Add($txtHeaders, 1, 2)
-    $inputPanel.Controls.Add((New-Label -Text "JSON Body:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 3); $inputPanel.Controls.Add($txtBody, 1, 3)
-    $inputPanel.Controls.Add($chkPlaintext, 0, 4); $inputPanel.SetColumnSpan($chkPlaintext, 2)
+    $inputPanel.Controls.Add((New-Label -Text "Proto File:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 1); $inputPanel.Controls.Add($protoPanel, 1, 1)
+    $inputPanel.Controls.Add((New-Label -Text "Method:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 2); $inputPanel.Controls.Add($txtMethod, 1, 2)
+    $inputPanel.Controls.Add((New-Label -Text "Headers:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 3); $inputPanel.Controls.Add($txtHeaders, 1, 3)
+    $inputPanel.Controls.Add((New-Label -Text "JSON Body:" -Property @{AutoSize=$true; Anchor='Left'; TextAlign='MiddleLeft'}), 0, 4); $inputPanel.Controls.Add($txtBody, 1, 4)
+    $inputPanel.Controls.Add($chkPlaintext, 0, 5); $inputPanel.SetColumnSpan($chkPlaintext, 2)
     
     $btnExecute = New-Button -Text "Execute gRPC" -Style 'Primary' -Property @{ Height=38; Dock='Fill'; Margin=[System.Windows.Forms.Padding]::new(0,10,0,0) } -OnClick {
         $txtOutput.Text = "Executing..."
@@ -88,6 +101,12 @@ function Show-GrpcClient {
 
         $argsList = @()
         if ($chkPlaintext.Checked) { $argsList += "-plaintext" }
+
+        if (-not [string]::IsNullOrWhiteSpace($txtProtoFile.Text) -and (Test-Path $txtProtoFile.Text)) {
+            $protoDir = Split-Path $txtProtoFile.Text
+            $protoName = Split-Path $txtProtoFile.Text -Leaf
+            $argsList += "-import-path", "`"$protoDir`"", "-proto", "`"$protoName`""
+        }
         
         # Add Headers
         if (-not [string]::IsNullOrWhiteSpace($txtHeaders.Text)) {
