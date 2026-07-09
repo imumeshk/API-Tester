@@ -50,8 +50,3 @@ function Invoke-RunTests {
     }
     return $out.ToString()
 }
-
-Write-Log "Script finished"
-
-# Create and run the form
-$apiForm = New-APIForm
