@@ -1793,10 +1793,12 @@ function Show-AboutDialog {
     }
 
     $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
-        Dock        = 'Fill'
-        ColumnCount = 1
-        RowCount    = 5
-        BackColor   = $script:Theme.FormBackground
+        Dock         = 'Fill'
+        ColumnCount  = 1
+        RowCount     = 5
+        BackColor    = $script:Theme.FormBackground
+        AutoSize     = $true
+        AutoSizeMode = 'GrowAndShrink'
     }
     $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
     $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
@@ -1806,13 +1808,14 @@ function Show-AboutDialog {
 
     # --- Header ---
     $headerPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
-        Dock        = 'Fill'
-        ColumnCount = 2
-        RowCount    = 1
-        BackColor   = $script:Theme.PrimaryButton
-        AutoSize    = $true
-        Padding     = [System.Windows.Forms.Padding]::new(15, 15, 15, 15)
-        Margin      = [System.Windows.Forms.Padding]::new(0)
+        Dock         = 'Fill'
+        ColumnCount  = 2
+        RowCount     = 1
+        BackColor    = $script:Theme.PrimaryButton
+        AutoSize     = $true
+        AutoSizeMode = 'GrowAndShrink'
+        Padding      = [System.Windows.Forms.Padding]::new(15, 15, 15, 15)
+        Margin       = [System.Windows.Forms.Padding]::new(0)
     }
     $headerPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
     $headerPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
@@ -1828,6 +1831,7 @@ function Show-AboutDialog {
         Dock          = 'Fill'
         FlowDirection = 'TopDown'
         AutoSize      = $true
+        AutoSizeMode  = 'GrowAndShrink'
         WrapContents  = $false
         Margin        = [System.Windows.Forms.Padding]::new(0)
     }
@@ -1850,12 +1854,13 @@ function Show-AboutDialog {
 
     # --- Details ---
     $detailsPanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
-        Dock        = 'Fill'
-        ColumnCount = 2
-        AutoSize    = $true
-        Padding     = [System.Windows.Forms.Padding]::new(20, 20, 20, 20)
-        Margin      = [System.Windows.Forms.Padding]::new(0)
-        BackColor   = $script:Theme.GroupBackground
+        Dock         = 'Fill'
+        ColumnCount  = 2
+        AutoSize     = $true
+        AutoSizeMode = 'GrowAndShrink'
+        Padding      = [System.Windows.Forms.Padding]::new(20, 20, 20, 20)
+        Margin       = [System.Windows.Forms.Padding]::new(0)
+        BackColor    = $script:Theme.GroupBackground
     }
     $detailsPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize))) | Out-Null
     $detailsPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
@@ -1908,12 +1913,13 @@ function Show-AboutDialog {
 
     # --- Update Panel ---
     $updatePanel = New-Object System.Windows.Forms.TableLayoutPanel -Property @{
-        Dock        = 'Fill'
-        ColumnCount = 1
-        RowCount    = 4
-        AutoSize    = $true
-        Padding     = [System.Windows.Forms.Padding]::new(20, 15, 20, 15)
-        Margin      = [System.Windows.Forms.Padding]::new(0)
+        Dock         = 'Fill'
+        ColumnCount  = 1
+        RowCount     = 4
+        AutoSize     = $true
+        AutoSizeMode = 'GrowAndShrink'
+        Padding      = [System.Windows.Forms.Padding]::new(20, 15, 20, 15)
+        Margin       = [System.Windows.Forms.Padding]::new(0)
     }
     $lblUpdateTitle = New-Label -Text "Software Update" -Property @{ Font = $boldFont; ForeColor = $script:Theme.TextColor; AutoSize = $true; Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 5) }
     $lblUpdateStatus = New-Label -Text "Click 'Check for Updates' to check." -Property @{ Font = $normalFont; ForeColor = $grayColor; AutoSize = $true; MaximumSize = [System.Drawing.Size]::new(480, 0); Margin = [System.Windows.Forms.Padding]::new(0, 0, 0, 15) }
@@ -1925,6 +1931,7 @@ function Show-AboutDialog {
         Dock          = 'Fill'
         FlowDirection = 'LeftToRight'
         AutoSize      = $true
+        AutoSizeMode  = 'GrowAndShrink'
         Margin        = [System.Windows.Forms.Padding]::new(0)
     }
 
@@ -1956,6 +1963,7 @@ function Show-AboutDialog {
         Dock          = 'Fill'
         FlowDirection = 'RightToLeft'
         AutoSize      = $true
+        AutoSizeMode  = 'GrowAndShrink'
         Padding       = [System.Windows.Forms.Padding]::new(15)
         Margin        = [System.Windows.Forms.Padding]::new(0)
         BackColor     = $script:Theme.GroupBackground
