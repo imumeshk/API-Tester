@@ -62,7 +62,7 @@ function Show-AboutDialog {
 
     $aboutForm = New-Object System.Windows.Forms.Form -Property @{
         Text            = "About PowerShell API Tester"
-        Size            = [System.Drawing.Size]::new(480, 520)
+        Size            = [System.Drawing.Size]::new(580, 560)
         StartPosition   = [System.Windows.Forms.FormStartPosition]::CenterParent
         FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
         MaximizeBox     = $false
@@ -74,7 +74,7 @@ function Show-AboutDialog {
     # --- Header panel (icon + app name) ---
     $headerPanel = New-Object System.Windows.Forms.Panel -Property @{
         Dock      = 'Top'
-        Height    = 80
+        Height    = 90
         BackColor = $script:Theme.PrimaryButton
         Padding   = [System.Windows.Forms.Padding]::new(15, 10, 15, 10)
     }
@@ -90,14 +90,14 @@ function Show-AboutDialog {
         Font      = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
         ForeColor = [System.Drawing.Color]::White
         Location  = [System.Drawing.Point]::new(73, 12)
-        Size      = [System.Drawing.Size]::new(370, 30)
+        AutoSize  = $true
     }
 
     $lblTagline = New-Label -Text "Feature-rich REST / gRPC API testing tool for Windows" -Property @{
         Font      = New-Object System.Drawing.Font("Segoe UI", 8)
         ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#cfe8fc")
         Location  = [System.Drawing.Point]::new(74, 44)
-        Size      = [System.Drawing.Size]::new(370, 20)
+        AutoSize  = $true
     }
 
     $headerPanel.Controls.AddRange(@($picIcon, $lblAppName, $lblTagline))
@@ -105,7 +105,7 @@ function Show-AboutDialog {
     # --- Details panel ---
     $detailsPanel = New-Object System.Windows.Forms.Panel -Property @{
         Dock      = 'Top'
-        Height    = 180
+        Height    = 230
         BackColor = $script:Theme.GroupBackground
         Padding   = [System.Windows.Forms.Padding]::new(20, 15, 20, 10)
     }
@@ -178,7 +178,7 @@ function Show-AboutDialog {
     # --- Update panel ---
     $updatePanel = New-Object System.Windows.Forms.Panel -Property @{
         Dock      = 'Top'
-        Height    = 110
+        Height    = 130
         BackColor = $script:Theme.FormBackground
         Padding   = [System.Windows.Forms.Padding]::new(20, 10, 20, 10)
     }
@@ -247,4 +247,5 @@ function Show-AboutDialog {
 #endregion About & Update Functions
 
 # The main function that constructs and displays the primary application window.
+
 
