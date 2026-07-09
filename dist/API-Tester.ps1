@@ -1723,7 +1723,7 @@ function Show-KeyboardShortcuts {
 
     $kbForm = New-Object System.Windows.Forms.Form -Property @{
         Text            = "Keyboard Shortcuts"
-        Size            = New-Object System.Drawing.Size(420, 300)
+        Size            = [System.Drawing.Size]::new(420, 300)
         StartPosition   = [System.Windows.Forms.FormStartPosition]::CenterParent
         FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
         MaximizeBox     = $false
@@ -1782,7 +1782,7 @@ function Show-AboutDialog {
 
     $aboutForm = New-Object System.Windows.Forms.Form -Property @{
         Text            = "About PowerShell API Tester"
-        Size            = New-Object System.Drawing.Size(480, 520)
+        Size            = [System.Drawing.Size]::new(480, 520)
         StartPosition   = [System.Windows.Forms.FormStartPosition]::CenterParent
         FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
         MaximizeBox     = $false
@@ -1801,23 +1801,23 @@ function Show-AboutDialog {
 
     $picIcon = New-Object System.Windows.Forms.PictureBox -Property @{
         Image    = [System.Drawing.SystemIcons]::Application.ToBitmap()
-        Size     = New-Object System.Drawing.Size(48, 48)
-        Location = New-Object System.Drawing.Point(15, 16)
+        Size     = [System.Drawing.Size]::new(48, 48)
+        Location = [System.Drawing.Point]::new(15, 16)
         SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::StretchImage
     }
 
     $lblAppName = New-Label -Text "PowerShell API Tester" -Property @{
         Font      = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
         ForeColor = [System.Drawing.Color]::White
-        Location  = New-Object System.Drawing.Point(73, 12)
-        Size      = New-Object System.Drawing.Size(370, 30)
+        Location  = [System.Drawing.Point]::new(73, 12)
+        Size      = [System.Drawing.Size]::new(370, 30)
     }
 
     $lblTagline = New-Label -Text "Feature-rich REST / gRPC API testing tool for Windows" -Property @{
         Font      = New-Object System.Drawing.Font("Segoe UI", 8)
         ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#cfe8fc")
-        Location  = New-Object System.Drawing.Point(74, 44)
-        Size      = New-Object System.Drawing.Size(370, 20)
+        Location  = [System.Drawing.Point]::new(74, 44)
+        Size      = [System.Drawing.Size]::new(370, 20)
     }
 
     $headerPanel.Controls.AddRange(@($picIcon, $lblAppName, $lblTagline))
@@ -1847,16 +1847,16 @@ function Show-AboutDialog {
         $lblKey = New-Label -Text $row.Label -Property @{
             Font      = $boldFont
             ForeColor = $grayColor
-            Location  = New-Object System.Drawing.Point(0, $yPos)
-            Size      = New-Object System.Drawing.Size(80, 22)
+            Location  = [System.Drawing.Point]::new(0, $yPos)
+            Size      = [System.Drawing.Size]::new(80, 22)
         }
 
         if ($row.IsLink) {
             $lnk = New-Object System.Windows.Forms.LinkLabel -Property @{
                 Text      = $row.Value
                 Font      = $normalFont
-                Location  = New-Object System.Drawing.Point(90, $yPos)
-                Size      = New-Object System.Drawing.Size(310, 22)
+                Location  = [System.Drawing.Point]::new(90, $yPos)
+                Size      = [System.Drawing.Size]::new(310, 22)
                 LinkColor = $blueColor
             }
             $repoUrl = "https://github.com/$($script:AppGitHubRepo)"
@@ -1868,8 +1868,8 @@ function Show-AboutDialog {
             $lblVal = New-Label -Text $row.Value -Property @{
                 Font      = $normalFont
                 ForeColor = $script:Theme.TextColor
-                Location  = New-Object System.Drawing.Point(90, $yPos)
-                Size      = New-Object System.Drawing.Size(310, 22)
+                Location  = [System.Drawing.Point]::new(90, $yPos)
+                Size      = [System.Drawing.Size]::new(310, 22)
             }
             $detailsPanel.Controls.Add($lblVal)
         }
@@ -1882,8 +1882,8 @@ function Show-AboutDialog {
     $lblDesc = New-Label -Text "A feature-rich API testing tool built entirely in PowerShell & WinForms." -Property @{
         Font      = $normalFont
         ForeColor = $grayColor
-        Location  = New-Object System.Drawing.Point(0, $yPos + 5)
-        Size      = New-Object System.Drawing.Size(400, 40)
+        Location  = [System.Drawing.Point]::new(0, $yPos + 5)
+        Size      = [System.Drawing.Size]::new(400, 40)
         AutoSize  = $false
     }
     $detailsPanel.Controls.Add($lblDesc)
@@ -1906,15 +1906,15 @@ function Show-AboutDialog {
     $lblUpdateTitle = New-Label -Text "Software Update" -Property @{
         Font      = $boldFont
         ForeColor = $script:Theme.TextColor
-        Location  = New-Object System.Drawing.Point(0, 10)
+        Location  = [System.Drawing.Point]::new(0, 10)
         AutoSize  = $true
     }
 
     $lblUpdateStatus = New-Label -Text "Click 'Check for Updates' to check." -Property @{
         Font      = $normalFont
         ForeColor = $grayColor
-        Location  = New-Object System.Drawing.Point(0, 35)
-        Size      = New-Object System.Drawing.Size(420, 20)
+        Location  = [System.Drawing.Point]::new(0, 35)
+        Size      = [System.Drawing.Size]::new(420, 20)
         AutoSize  = $false
     }
 
@@ -1924,8 +1924,8 @@ function Show-AboutDialog {
             Invoke-DownloadUpdate -Release $release -StatusLabel $lblUpdateStatus
         }
     } -Property @{
-        Location = New-Object System.Drawing.Point(0, 60)
-        Size     = New-Object System.Drawing.Size(160, 32)
+        Location = [System.Drawing.Point]::new(0, 60)
+        Size     = [System.Drawing.Size]::new(160, 32)
         Visible  = $false
     }
     $btnDownload.Name = "btnDownload"
@@ -1933,8 +1933,8 @@ function Show-AboutDialog {
     $btnCheck = New-Button -Text "Check for Updates" -Style 'Secondary' -OnClick {
         Invoke-UpdateCheck -StatusLabel $lblUpdateStatus -DownloadButton $btnDownload -ParentForm $aboutForm
     } -Property @{
-        Location = New-Object System.Drawing.Point(170, 60)
-        Size     = New-Object System.Drawing.Size(150, 32)
+        Location = [System.Drawing.Point]::new(170, 60)
+        Size     = [System.Drawing.Size]::new(150, 32)
     }
 
     $updatePanel.Controls.AddRange(@($lblUpdateTitle, $lblUpdateStatus, $btnDownload, $btnCheck))
@@ -1964,6 +1964,7 @@ function Show-AboutDialog {
 #endregion About & Update Functions
 
 # The main function that constructs and displays the primary application window.
+
 
 function New-AuthPanel {
     param (
