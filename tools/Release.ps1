@@ -616,7 +616,7 @@ function Invoke-Publish {
     $staged = @(Invoke-Git diff --cached --name-only | Where-Object { $_ })
     $userData = @(Invoke-Git diff --cached --name-only --diff-filter=d | Where-Object { $_ -and ($_ -match $userDataPattern -or $_ -match $privateDocsPattern) })
     if ($userData.Count -gt 0) { throw "User data or internal documents would be committed ($($userData[0]) ...). Run .\tools\Release.ps1 Init first." }
-    if ($staged.Count -gt 0) { Invoke-Git commit --quiet -m "Release $tag" | Out-Null; Write-Ok "Committed $($staged.Count) file(s): Release $tag" }
+    if ($staged.Count -gt 0) { Invoke-Git commit --quiet -m "chore(release): $tag" -m "Set the version, move the changelog entries and add the release notes for $tag." | Out-Null; Write-Ok "Committed $($staged.Count) file(s): Release $tag" }
     else { Write-Info 'Nothing new to commit - tagging the current commit.' }
     Invoke-Git tag -a $tag -m "API Tester $tag" | Out-Null
     Write-Ok "Tagged $tag"
