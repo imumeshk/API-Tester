@@ -614,7 +614,7 @@ function Invoke-Publish {
     Write-Step 'Commit, tag and push'
     Invoke-Git add -A | Out-Null
     $staged = @(Invoke-Git diff --cached --name-only | Where-Object { $_ })
-    $userData = @($staged | Where-Object { $_ -match $userDataPattern -or $_ -match $privateDocsPattern })
+    $userData = @(Invoke-Git diff --cached --name-only --diff-filter=d | Where-Object { $_ -and ($_ -match $userDataPattern -or $_ -match $privateDocsPattern) })
     if ($userData.Count -gt 0) { throw "User data or internal documents would be committed ($($userData[0]) ...). Run .\tools\Release.ps1 Init first." }
     if ($staged.Count -gt 0) { Invoke-Git commit --quiet -m "Release $tag" | Out-Null; Write-Ok "Committed $($staged.Count) file(s): Release $tag" }
     else { Write-Info 'Nothing new to commit - tagging the current commit.' }
