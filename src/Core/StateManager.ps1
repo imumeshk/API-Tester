@@ -1,11 +1,11 @@
-function Load-History {
+﻿function Import-History {
     if (Test-Path $historyFilePath) {
         try {
             $jsonContent = Get-Content -Path $historyFilePath -Raw
             # Filter out any null entries that might be in the JSON array
             $script:history = ($jsonContent | ConvertFrom-Json -ErrorAction SilentlyContinue) | Where-Object { $_ -ne $null }
             Write-Log "History loaded from $historyFilePath"
-        } catch { # Catch block for Load-History
+        } catch { # Catch block for Import-History
             Write-Log "Could not load or parse history file: $($_.Exception.Message)" -Level Info
             $script:history = @()
         }
@@ -22,7 +22,7 @@ function Save-History {
 
 function Save-Globals {
     try {
-        $script:globals | ConvertTo-Json -Depth 10 | Out-File -FilePath $globalsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
+        ConvertTo-ProtectedVariables -Variables $script:globals -SecretNames @($script:settings.SecretGlobalNames) | ConvertTo-Json -Depth 10 | Out-File -FilePath $globalsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
     } catch {
         Write-Log "Failed to save globals: $($_.Exception.Message)" -Level Debug
     }
@@ -30,12 +30,13 @@ function Save-Globals {
 
 $script:globals = @{}
 
-function Load-Globals {
+function Import-Globals {
     if (Test-Path $globalsFilePath) {
         try {
             $json = Get-Content -Path $globalsFilePath -Raw
-            $script:globals = $json | ConvertFrom-Json -AsHashtable -ErrorAction SilentlyContinue
+            $script:globals = ConvertFrom-JsonToHashtable -Json $json
             if (-not $script:globals) { $script:globals = @{} }
+            Unprotect-SecretVariables -Variables $script:globals -SecretNames @($script:settings.SecretGlobalNames)
             Write-Log "Globals loaded from $globalsFilePath" -Level Debug
         } catch {
             Write-Log "Could not load or parse globals file: $($_.Exception.Message)" -Level Info
@@ -44,23 +45,18 @@ function Load-Globals {
     }
 }
 
-function Save-Globals {
-    try {
-        $script:globals | ConvertTo-Json -Depth 10 | Out-File -FilePath $globalsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
-    } catch {
-        Write-Log "Failed to save globals: $($_.Exception.Message)" -Level Debug
-    }
-}
 $script:environments = @{}
 $script:activeEnvironment = "No Environment"
 
-function Load-Environments {
+function Import-Environments {
     if (Test-Path $environmentsFilePath) {
         try {
             $json = Get-Content -Path $environmentsFilePath -Raw
-            $script:environments = $json | ConvertFrom-Json -AsHashtable -ErrorAction SilentlyContinue
+            $script:environments = ConvertFrom-JsonToHashtable -Json $json
+            if (-not $script:environments) { $script:environments = @{} }
             # Decrypt sensitive fields
             foreach ($env in $script:environments.Values) {
+                if ($env.Variables) { Unprotect-SecretVariables -Variables $env.Variables -SecretNames (Get-SecretNames $env) }
                 if ($env.Authentication) {
                     foreach ($k in @('Value','Token','Password','ClientSecret','AccessToken','RefreshToken')) {
                         if ($env.Authentication[$k]) { $env.Authentication[$k] = Unprotect-String $env.Authentication[$k] }
@@ -68,7 +64,7 @@ function Load-Environments {
                 }
             }
             Write-Log "Environments loaded from $environmentsFilePath" -Level Debug
-        } catch { # Catch block for Load-Environments
+        } catch { # Catch block for Import-Environments
             Write-Log "Could not load or parse environments file: $($_.Exception.Message)" -Level Info
             $script:environments = @{}
         }
@@ -79,8 +75,10 @@ function Save-Environments {
     try {
         # Clone and Encrypt
         $jsonRaw = $script:environments | ConvertTo-Json -Depth 10
-        $envCopy = $jsonRaw | ConvertFrom-Json -AsHashtable
+        $envCopy = ConvertFrom-JsonToHashtable -Json $jsonRaw
+        if (-not $envCopy) { $envCopy = @{} }
         foreach ($env in $envCopy.Values) {
+            if ($env.Variables) { $env.Variables = ConvertTo-ProtectedVariables -Variables $env.Variables -SecretNames (Get-SecretNames $env) }
             if ($env.Authentication) {
                 foreach ($k in @('Value','Token','Password','ClientSecret','AccessToken','RefreshToken')) {
                     if ($env.Authentication[$k]) { $env.Authentication[$k] = Protect-String $env.Authentication[$k] }
@@ -104,7 +102,7 @@ $script:requestTemplates = @()
 $script:activeRequestTabId = $null
 $script:isSwitchingRequestTab = $false
 
-function Ensure-CollectionVariables {
+function Initialize-CollectionVariables {
     param([array]$Items)
     foreach ($item in ($Items | Where-Object { $_ -ne $null })) {
         if ($item.Type -eq "Collection") {
@@ -114,11 +112,11 @@ function Ensure-CollectionVariables {
                 $item.Variables = @{}
             }
         }
-        if ($item.Items) { Ensure-CollectionVariables -Items $item.Items }
+        if ($item.Items) { Initialize-CollectionVariables -Items $item.Items }
     }
 }
 
-function Load-Collections {
+function Import-Collections {
     if (Test-Path $collectionsFilePath) {
         try {
             $jsonContent = Get-Content -Path $collectionsFilePath -Raw
@@ -126,9 +124,10 @@ function Load-Collections {
                 $script:collections = $jsonContent | ConvertFrom-Json -ErrorAction SilentlyContinue
             }
             if ($script:collections -and $script:collections -isnot [array]) { $script:collections = @($script:collections) }
-            Ensure-CollectionVariables -Items $script:collections
+            foreach ($collection in @($script:collections | Where-Object { $_ })) { if ($collection.Variables) { Unprotect-SecretVariables -Variables $collection.Variables -SecretNames (Get-SecretNames $collection) } }
+            Initialize-CollectionVariables -Items $script:collections
             Write-Log "Collections loaded from $collectionsFilePath" -Level Debug
-        } catch { # Catch block for Load-Collections
+        } catch { # Catch block for Import-Collections
             Write-Log "Could not load or parse collections file: $($_.Exception.Message)" -Level Info
             $script:collections = @()
         }
@@ -137,10 +136,10 @@ function Load-Collections {
 
 function Save-Collections {
     try {
-        $json = $script:collections | ConvertTo-Json -Depth 10
+        # Depth 50: nested folders deeper than a few levels were silently truncated at depth 10.
+        $json = ConvertTo-Json -InputObject (Get-CollectionsForStorage -Collections $script:collections) -Depth 50
         $json | Out-File -FilePath $collectionsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
     } catch {
-        Write-Log "Failed to save collections: $($_.Exception.Message)" -Level Debug
         Write-Log "Failed to save collections: $($_.Exception.Message)" -Level Info
     }
 }
@@ -190,7 +189,7 @@ function New-RequestTabState {
     }
 }
 
-function Ensure-RequestTabDefaults {
+function Initialize-RequestTabDefaults {
     param([object]$TabState)
     if (-not $TabState) { return }
     if (-not ($TabState.PSObject.Properties.Name -contains 'Id') -or [string]::IsNullOrWhiteSpace($TabState.Id)) {
@@ -219,7 +218,7 @@ function Ensure-RequestTabDefaults {
     }
 }
 
-function Load-RequestTabs {
+function Import-RequestTabs {
     $script:requestTabs = @()
     if (Test-Path $requestTabsFilePath) {
         try {
@@ -229,7 +228,7 @@ function Load-RequestTabs {
                 if ($loadedTabs -and $loadedTabs -isnot [array]) { $loadedTabs = @($loadedTabs) }
                 foreach ($tabState in @($loadedTabs)) {
                     if (-not $tabState) { continue }
-                    Ensure-RequestTabDefaults -TabState $tabState
+                    Initialize-RequestTabDefaults -TabState $tabState
                     $script:requestTabs += $tabState
                 }
             }
@@ -246,6 +245,7 @@ function Load-RequestTabs {
 }
 
 function Save-RequestTabs {
+    if ($script:isSecondaryWindow) { return }
     try {
         if (-not $script:requestTabs) { return }
         $script:requestTabs | ConvertTo-Json -Depth 20 | Out-File -FilePath $requestTabsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
@@ -254,7 +254,7 @@ function Save-RequestTabs {
     }
 }
 
-function Load-RequestTemplates {
+function Import-RequestTemplates {
     $script:requestTemplates = @()
     if (Test-Path $requestTemplatesFilePath) {
         try {
@@ -264,7 +264,7 @@ function Load-RequestTemplates {
                 if ($loadedTemplates -and $loadedTemplates -isnot [array]) { $loadedTemplates = @($loadedTemplates) }
                 foreach ($template in @($loadedTemplates)) {
                     if (-not $template) { continue }
-                    Ensure-RequestTabDefaults -TabState $template
+                    Initialize-RequestTabDefaults -TabState $template
                     $script:requestTemplates += $template
                 }
             }
@@ -286,7 +286,7 @@ function Save-RequestTemplates {
 
 $script:monitors = @()
 
-function Load-Monitors {
+function Import-Monitors {
     if (Test-Path $monitorsFilePath) {
         try {
             $json = Get-Content -Path $monitorsFilePath -Raw
@@ -329,7 +329,7 @@ function Save-Monitors {
 
 $script:grpcHistory = @()
 
-function Load-GrpcHistory {
+function Import-GrpcHistory {
     if (Test-Path $grpcHistoryFilePath) {
         try {
             $json = Get-Content -Path $grpcHistoryFilePath -Raw
@@ -371,11 +371,25 @@ $script:defaultSettings = @{
     ShowTestResultsTab = $false
     LastActiveEnvironment = "No Environment"
     ResponseDockState = "Right"
+    EnableLogs = $true
+    HistoryUndocked = $false
+    RestoreRequestTabs = $false
+    WindowBounds = $null
+    EnableMonitorWebDashboard = $true
+    MonitorDashboardPort = 8765
+    HistorySaveResponses = $true
+    HistoryResponseBodyLimitKB = 256
+    SecretGlobalNames = @()
+    CollectionRunnerParallel = 1
+    CollectionRunnerRetries = 0
+    CheckForUpdatesOnStartup = $true
+    LastUpdateCheck = $null
     IgnoreSslErrors = $false
     RequestTimeoutSeconds = 60
     ResponseFontSize = 8
-    EnablePostmanImport = $false
-    EnableCurlImport = $false
+    EnablePostmanImport = $true
+    EnableCurlImport = $true
+    ImportDefaultsMigrated = $true
     EnableRepeatRequest = $false
     MaxRepeatCount = 5
     MonitorSmtpServer = ""
@@ -425,7 +439,11 @@ $script:collectionRunQueue = New-Object System.Collections.Queue
 $script:settings = $script:defaultSettings.Clone()
 
 
-function Load-Settings {
+# Settings keys that are stored encrypted (DPAPI) on disk. Used by BOTH Import-Settings and Save-Settings
+# so the two can never get out of sync.
+$script:encryptedSettingKeys = @('MonitorSmtpPass', 'MonitorSmtpClientSecret', 'MonitorSmtpRefreshToken', 'ProxyPass')
+
+function Import-Settings {
     if (Test-Path $settingsFilePath) {
         try {
             Copy-Item -Path $settingsFilePath -Destination "$settingsFilePath.bak" -Force -ErrorAction SilentlyContinue
@@ -446,7 +464,7 @@ function Load-Settings {
                 if ($script:settings.ContainsKey($key)) { $script:settings[$key] = $loadedSettings.$key }
             }            
             Write-Log "Settings loaded from $settingsFilePath"
-        } catch { # Catch block for Load-Settings
+        } catch { # Catch block for Import-Settings
             Write-Log "Could not load or parse settings file: $($_.Exception.Message)" -Level Info
         }
     }
@@ -458,24 +476,30 @@ function Load-Settings {
     if ([int]$script:settings.ResponseFontSize -le 0) { $script:settings.ResponseFontSize = $script:defaultSettings.ResponseFontSize }
     if ([int]$script:settings.RequestTimeoutSeconds -le 0) { $script:settings.RequestTimeoutSeconds = $script:defaultSettings.RequestTimeoutSeconds }
 
-    # Decrypt SMTP Password if present
-    if ($script:settings.MonitorSmtpPass) { $script:settings.MonitorSmtpPass = Unprotect-String $script:settings.MonitorSmtpPass }
-    if ($script:settings.MonitorSmtpClientSecret) { $script:settings.MonitorSmtpClientSecret = Unprotect-String $script:settings.MonitorSmtpClientSecret }
-    if ($script:settings.MonitorSmtpRefreshToken) { $script:settings.MonitorSmtpRefreshToken = Unprotect-String $script:settings.MonitorSmtpRefreshToken }
+    # One-time migration: Postman/cURL import used to default to off and stay hidden in saved settings files.
+    if (-not $loadedSettings -or -not ($loadedSettings.PSObject.Properties.Name -contains 'ImportDefaultsMigrated')) {
+        $script:settings.EnablePostmanImport = $true
+        $script:settings.EnableCurlImport = $true
+        $script:settings.ImportDefaultsMigrated = $true
+    }
+
+    # Decrypt sensitive values
+    foreach ($key in $script:encryptedSettingKeys) {
+        if ($script:settings[$key]) { $script:settings[$key] = Unprotect-String $script:settings[$key] }
+    }
 }
 
 function Save-Settings {
     $settingsToSave = $script:settings.Clone()
-    if ($settingsToSave.MonitorSmtpPass) { $settingsToSave.MonitorSmtpPass = Protect-String $settingsToSave.MonitorSmtpPass }
-    if ($settingsToSave.MonitorSmtpClientSecret) { $settingsToSave.MonitorSmtpClientSecret = Protect-String $settingsToSave.MonitorSmtpClientSecret }
-    if ($settingsToSave.MonitorSmtpRefreshToken) { $settingsToSave.MonitorSmtpRefreshToken = Protect-String $settingsToSave.MonitorSmtpRefreshToken }
-    if ($settingsToSave.ProxyPass) { $settingsToSave.ProxyPass = Protect-String $settingsToSave.ProxyPass }
+    foreach ($key in $script:encryptedSettingKeys) {
+        if ($settingsToSave[$key]) { $settingsToSave[$key] = Protect-String $settingsToSave[$key] }
+    }
     $settingsToSave | ConvertTo-Json | Set-Content -Path $settingsFilePath
 }
 
 # Formats a byte count into a human-readable string (e.g., KB, MB, GB).
 
-function Load-DraftState {
+function Import-DraftState {
     if (Test-Path $draftsFilePath) {
         try {
             $json = Get-Content -Path $draftsFilePath -Raw
@@ -492,6 +516,7 @@ function Load-DraftState {
 }
 
 function Save-DraftState {
+    if ($script:isSecondaryWindow) { return }
     try {
         if (-not $script:requestTabs) { return }
         # Note: Do not overwrite the main file heavily to avoid I/O bottlenecks. 

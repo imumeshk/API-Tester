@@ -1,4 +1,4 @@
-function Parse-OpenApiSpec {
+function ConvertFrom-OpenApiSpec {
     param([string]$FilePath)
     
     if (-not (Test-Path $FilePath)) {
@@ -7,12 +7,35 @@ function Parse-OpenApiSpec {
     
     $content = Get-Content $FilePath -Raw
     $spec = $null
-    
-    # Try parsing as JSON
-    try {
-        $spec = $content | ConvertFrom-Json -Depth 100 -ErrorAction Stop
-    } catch {
-        throw "Failed to parse OpenAPI spec as JSON. (YAML parsing is not yet natively supported without additional modules.)"
+    $isYamlFile = $FilePath -match '\.(ya?ml)$'
+
+    # ConvertFrom-Json -Depth only exists in PowerShell 6.2+; Windows PowerShell 5.1 has no such parameter.
+    $fromJson = {
+        param($text)
+        if ($PSVersionTable.PSVersion.Major -ge 6) { $text | ConvertFrom-Json -Depth 100 -ErrorAction Stop }
+        else { $text | ConvertFrom-Json -ErrorAction Stop }
+    }
+
+    if (-not $isYamlFile) {
+        try { $spec = & $fromJson $content } catch { $spec = $null }
+    }
+
+    if (-not $spec) {
+        # Not JSON (or a .yaml/.yml file): attempt YAML via the optional 'powershell-yaml' module.
+        $yamlAvailable = [bool](Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)
+        if (-not $yamlAvailable) {
+            try { Import-Module powershell-yaml -ErrorAction Stop; $yamlAvailable = $true } catch { }
+        }
+        if (-not $yamlAvailable) {
+            throw "This file is not valid JSON, and YAML support requires the 'powershell-yaml' module. Install it with: Install-Module powershell-yaml -Scope CurrentUser   (or convert the spec to JSON first)."
+        }
+        try {
+            $yamlObj = ConvertFrom-Yaml $content
+            # Round-trip through JSON so the rest of the code sees PSCustomObjects, not hashtables.
+            $spec = & $fromJson ($yamlObj | ConvertTo-Json -Depth 100)
+        } catch {
+            throw "Failed to parse the OpenAPI spec as JSON or YAML: $($_.Exception.Message)"
+        }
     }
 
     if (-not $spec.paths) {
@@ -26,7 +49,7 @@ function Parse-OpenApiSpec {
         Id = $folderId
         Type = "Folder"
         Name = $folderName
-        Children = @()
+        Items = @()
     }
 
     $baseUrl = ""
@@ -94,7 +117,7 @@ function Parse-OpenApiSpec {
                 }
             }
 
-            $folderNode.Children += $requestObj
+            $folderNode.Items += $requestObj
         }
     }
 

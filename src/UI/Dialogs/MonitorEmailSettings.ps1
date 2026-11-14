@@ -60,7 +60,7 @@ function Show-MonitorEmailSettings {
         $script:settings.MonitorSmtpTokenEndpoint = $txtTokenEndpoint.Text
         
         try {
-            Refresh-SmtpToken
+            Update-SmtpToken
             $txtPass.Text = $script:settings.MonitorSmtpPass
             [System.Windows.Forms.MessageBox]::Show("Token refreshed successfully!", "Success", "OK", "Information")
         } catch {
@@ -168,6 +168,7 @@ function Show-MonitorEmailSettings {
     $grpActions.Controls.Add($btnPanel)
     $layout.Controls.Add($grpActions)
     $form.Controls.Add($layout)
+    Set-AppTheme -Form $form
     $form.ShowDialog($parentForm)
     #FIX: Corrected function call
 }

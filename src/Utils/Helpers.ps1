@@ -1,7 +1,45 @@
+﻿# Prompts for a single line of text (XAML dialog). Returns the entered text, or "" when cancelled.
 function Show-InputBox {
     param([string]$Prompt, [string]$Title = "Input", [string]$DefaultText = "")
+
+    try {
+        $xaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Input" Width="440" SizeToContent="Height" ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="CenterScreen" Background="@FORM@" Foreground="@TEXT@" FontFamily="Segoe UI">
+  <Window.Resources><!--APP_RESOURCES--></Window.Resources>
+  <StackPanel Margin="22,18,22,18">
+    <TextBlock x:Name="PromptText" TextWrapping="Wrap" Margin="0,0,0,10"/>
+    <TextBox x:Name="InputBox" Height="32" VerticalContentAlignment="Center"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+      <Button x:Name="OkButton" Style="{StaticResource PrimaryButton}" IsDefault="True" Width="90" Content="OK"/>
+      <Button x:Name="CancelButton" IsCancel="True" Width="90" Margin="10,0,0,0" Content="Cancel"/>
+    </StackPanel>
+  </StackPanel>
+</Window>
+'@
+        $ui = New-WpfWindowFromXaml -Xaml $xaml -ControlNames 'PromptText', 'InputBox', 'OkButton', 'CancelButton'
+        $window = $ui.Window
+        $window.Title = $Title
+        $ui.Controls['PromptText'].Text = $Prompt
+        $ui.Controls['InputBox'].Text = $DefaultText
+        $ui.Controls['OkButton'].Add_Click({ $window.DialogResult = $true })
+        $window.Add_ContentRendered({ $ui.Controls['InputBox'].Focus() | Out-Null; $ui.Controls['InputBox'].SelectAll() })
+
+        $result = ""
+        if ((Show-WpfDialog -Window $window) -eq $true) { $result = $ui.Controls['InputBox'].Text }
+        return $result
+    } catch {
+        Write-Log "WPF input dialog failed, using WinForms fallback: $($_.Exception.Message)" -Level Info
+        return Show-InputBoxFallback -Prompt $Prompt -Title $Title -DefaultText $DefaultText
+    }
+}
+
+# WinForms fallback used only if the WPF dialog cannot be created.
+function Show-InputBoxFallback {
+    param([string]$Prompt, [string]$Title = "Input", [string]$DefaultText = "")
     $form = New-Object System.Windows.Forms.Form -Property @{ Text=$Title; Size=New-Object System.Drawing.Size(400,160); StartPosition="CenterParent"; FormBorderStyle="FixedDialog"; MaximizeBox=$false; MinimizeBox=$false; BackColor=$script:Theme.FormBackground }
-    $lbl = New-Label -Text $Prompt -Property @{ Location=New-Object System.Drawing.Point(15,15); AutoSize=$true }
+    $lbl = New-Label -Text $Prompt -Property @{ Location=New-Object System.Drawing.Point(15,15); AutoSize=$true; ForeColor=$script:Theme.TextColor }
     $txt = New-TextBox -Property @{ Location=New-Object System.Drawing.Point(15,40); Width=350; Text=$DefaultText }
     $btnOk = New-Button -Text "OK" -Style 'Primary' -Property @{ Location=New-Object System.Drawing.Point(210,80); Width=75; DialogResult="OK" }
     $btnCancel = New-Button -Text "Cancel" -Property @{ Location=New-Object System.Drawing.Point(290,80); Width=75; DialogResult="Cancel" }
@@ -17,7 +55,7 @@ function Show-InputBox {
 function Write-Log {
     param (
         [string]$Message,
-        [ValidateSet('Info', 'Debug')][string]$Level = 'Debug' # Default to Debug for existing calls
+        [ValidateSet('Info', 'Debug', 'Warning', 'Error')][string]$Level = 'Debug' # Default to Debug for existing calls
     )
     if ($script:settings.EnableLogs) {
         # Log Rotation: Check if file exceeds 5MB and rotate if necessary
@@ -87,16 +125,17 @@ function Set-AppTheme {
     if (-not $script:Theme) { return }
 
     # Function to apply theme recursively
-    function Apply-ThemeToControl {
+    function Set-ControlTheme {
         param([System.Windows.Forms.Control]$Control)
         if (-not $Control) { return }
         
         $type = $Control.GetType().Name
         if ($type -match "Button") {
-            if ($Control.Tag -eq "Primary") {
+            $buttonStyleName = Get-ButtonStyleName -Control $Control
+            if ($buttonStyleName -eq "Primary") {
                 $Control.BackColor = $script:Theme.PrimaryButton
                 $Control.ForeColor = $script:Theme.PrimaryButtonText
-            } elseif ($Control.Tag -eq "Danger") {
+            } elseif ($buttonStyleName -eq "Danger") {
                 $Control.BackColor = $script:Theme.DangerButton
                 $Control.ForeColor = $script:Theme.DangerButtonText
             } else {
@@ -130,9 +169,42 @@ function Set-AppTheme {
         }
 
         foreach ($child in $Control.Controls) {
-            Apply-ThemeToControl -Control $child
+            Set-ControlTheme -Control $child
         }
     }
 
-    Apply-ThemeToControl -Control $Form
+    Set-ControlTheme -Control $Form
+    Set-ThemedToolStripRenderer
+}
+
+# ConvertFrom-Json -AsHashtable only exists in PowerShell 6+. These helpers give the same result on Windows PowerShell 5.1.
+function ConvertTo-HashtableDeep {
+    param($InputObject)
+    if ($null -eq $InputObject) { return $null }
+    if ($InputObject -is [System.Management.Automation.PSCustomObject]) {
+        $table = @{}
+        foreach ($property in $InputObject.PSObject.Properties) { $table[$property.Name] = ConvertTo-HashtableDeep -InputObject $property.Value }
+        return $table
+    }
+    if ($InputObject -is [System.Collections.IList] -and $InputObject -isnot [string]) {
+        return , @($InputObject | ForEach-Object { ConvertTo-HashtableDeep -InputObject $_ })
+    }
+    return $InputObject
+}
+
+function ConvertFrom-JsonToHashtable {
+    param([string]$Json)
+    if ([string]::IsNullOrWhiteSpace($Json)) { return $null }
+    if ($PSVersionTable.PSVersion.Major -ge 6) { return ($Json | ConvertFrom-Json -AsHashtable) }
+    return (ConvertTo-HashtableDeep -InputObject ($Json | ConvertFrom-Json))
+}
+
+# Windows PowerShell 5.1 on older .NET Framework builds may still default to TLS 1.0; make sure TLS 1.2 is allowed.
+function Enable-ModernTls {
+    try {
+        $current = [System.Net.ServicePointManager]::SecurityProtocol
+        if ([int]$current -ne 0 -and -not ($current -band [System.Net.SecurityProtocolType]::Tls12)) {
+            [System.Net.ServicePointManager]::SecurityProtocol = $current -bor [System.Net.SecurityProtocolType]::Tls12
+        }
+    } catch { }
 }

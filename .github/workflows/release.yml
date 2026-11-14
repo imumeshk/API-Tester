@@ -1,0 +1,65 @@
+name: Release
+
+# Push a tag such as v3.0.0 (.\tools\Release.ps1 Publish does this) to publish a release.
+# The in-app updater downloads the asset named API-Tester.ps1 from the latest non-pre-release and checks it against
+# API-Tester.ps1.sha256. Tags with a hyphen (v3.1.0-beta.1) become pre-releases, which the updater ignores.
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with Windows PowerShell 5.1
+        shell: powershell
+        run: .\Build.ps1
+
+      - name: Check the tag matches $script:AppVersion
+        shell: pwsh
+        run: |
+          $constants = Get-Content src/Config/Constants.ps1 -Raw
+          if ($constants -notmatch '\$script:AppVersion\s*=\s*"([^"]+)"') { throw 'AppVersion not found in src/Config/Constants.ps1' }
+          $appVersion = $Matches[1]
+          $tagVersion = '${{ github.ref_name }}' -replace '^v', ''
+          if ($appVersion -ne $tagVersion) { throw "Tag ${{ github.ref_name }} does not match AppVersion $appVersion - run .\tools\Release.ps1 Prepare -Version $tagVersion" }
+
+      - name: Release notes
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $notes = "docs/releases/$tag.md"
+          if (Test-Path $notes) { Copy-Item $notes RELEASE_NOTES.md } else {
+          $version = $tag -replace '^v', ''
+          $lines = Get-Content CHANGELOG.md
+          $start = ($lines | Select-String -Pattern "^## \[$([regex]::Escape($version))\]" | Select-Object -First 1).LineNumber
+          $section = @("API Tester $tag")
+          if ($start) {
+            $rest = @($lines[$start..($lines.Count - 1)])
+            $end = ($rest | Select-String -Pattern '^## \[' | Select-Object -First 1).LineNumber
+            $section = if ($end) { $rest[0..($end - 2)] } else { $rest }
+          }
+          Set-Content -Path RELEASE_NOTES.md -Value $section -Encoding UTF8
+          }
+          # The checksum line always comes from this build (the file users download).
+          $hash = ((Get-Content dist/API-Tester.ps1.sha256 -Raw).Trim() -split '\s+')[0]
+          $text = Get-Content RELEASE_NOTES.md -Raw
+          $line = "SHA-256 of ``API-Tester.ps1``: ``$hash``"
+          if ($text -match '(?s)<!-- checksum:start -->.*?<!-- checksum:end -->') {
+            $text = [regex]::Replace($text, '(?s)<!-- checksum:start -->.*?<!-- checksum:end -->', "<!-- checksum:start -->`n$line`n<!-- checksum:end -->")
+          } else { $text = $text.TrimEnd() + "`n`n## Checksum`n$line`n" }
+          Set-Content -Path RELEASE_NOTES.md -Value $text -Encoding UTF8
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: API Tester ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/API-Tester.ps1
+            dist/API-Tester.ps1.sha256

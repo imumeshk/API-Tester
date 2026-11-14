@@ -1,0 +1,22 @@
+# User data that API Tester writes next to the script - never commit (settings, environments, collections,
+# history, logs; secrets in them are encrypted for the local Windows account only)
+dist/Configuration/
+dist/History/
+dist/Logs/
+Configuration/
+History/
+Logs/
+
+# Updater working files
+*.new.ps1
+*.bak.ps1
+
+# Generated per build and attached to each GitHub release instead
+dist/*.sha256
+RELEASE_NOTES.md
+
+# Downloaded at run time by the gRPC client
+grpcurl.exe
+
+# Internal documents (code audit, enhancement ideas, updater notes, naming conventions) - local only
+docs/internal/

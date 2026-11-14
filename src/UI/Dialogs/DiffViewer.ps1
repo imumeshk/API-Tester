@@ -94,6 +94,7 @@ function Show-DiffViewer {
         $rtbDiff.ResumeLayout()
     })
 
+    Set-AppTheme -Form $diffForm
     $diffForm.ShowDialog() | Out-Null
     $diffForm.Dispose()
 }

@@ -1,7 +1,19 @@
-#region Initialization
+﻿#region Initialization
+
+# WPF dialogs require an STA thread. Windows PowerShell 5.1 starts in MTA, so relaunch once in STA mode (UI runs only).
+if (-not $Headless -and $PSCommandPath -and [System.Threading.Thread]::CurrentThread.GetApartmentState() -ne [System.Threading.ApartmentState]::STA) {
+    $staHostPath = (Get-Process -Id $PID).Path
+    $staArguments = @('-NoProfile', '-STA', '-File', $PSCommandPath)
+    if ($ClassicUi) { $staArguments += '-ClassicUi' }
+    if ($RunMonitors) { $staArguments += '-RunMonitors' }
+    if ($OpenRequestFile) { $staArguments += @('-OpenRequestFile', $OpenRequestFile) }
+    & $staHostPath @staArguments
+    return
+}
+
 
 # --- App Metadata ---
-$script:AppVersion     = "2.0.0"
+$script:AppVersion     = "3.0.0"
 $script:AppGitHubRepo  = "imumeshk/API-Tester"
 $script:AppGitHubAsset = "API-Tester.ps1"   # Name of the .ps1 asset attached to GitHub Releases
 
@@ -101,39 +113,40 @@ catch {
 
 #region UI Theme & Icons
 
+# Palette shared by the WinForms controls and the WPF/XAML dialogs (see src/UI/WpfHost.ps1).
 $script:Themes = @{
     Light = @{
-        FormBackground      = [System.Drawing.ColorTranslator]::FromHtml("#f0f2f5")
-        GroupBackground     = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-        TextColor           = [System.Drawing.ColorTranslator]::FromHtml("#1f1f1f")
-        PrimaryButton       = [System.Drawing.ColorTranslator]::FromHtml("#0078d4")
-        PrimaryButtonText   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-        SecondaryButton     = [System.Drawing.ColorTranslator]::FromHtml("#e1e1e1")
-        SecondaryButtonText = [System.Drawing.ColorTranslator]::FromHtml("#1f1f1f")
-        DangerButton        = [System.Drawing.ColorTranslator]::FromHtml("#d93025")
-        DangerButtonText    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-        TextBoxBackground   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-        GridBackground      = [System.Drawing.ColorTranslator]::FromHtml("#f9f9f9")
+        FormBackground      = [System.Drawing.ColorTranslator]::FromHtml("#F4F7FC")
+        GroupBackground     = [System.Drawing.ColorTranslator]::FromHtml("#FFFFFF")
+        TextColor           = [System.Drawing.ColorTranslator]::FromHtml("#1F2937")
+        MutedText           = [System.Drawing.ColorTranslator]::FromHtml("#64748B")
+        BorderColor         = [System.Drawing.ColorTranslator]::FromHtml("#D8E1EF")
+        PrimaryButton       = [System.Drawing.ColorTranslator]::FromHtml("#3659C9")
+        PrimaryButtonText   = [System.Drawing.ColorTranslator]::FromHtml("#FFFFFF")
+        SecondaryButton     = [System.Drawing.ColorTranslator]::FromHtml("#E8EEFF")
+        SecondaryButtonText = [System.Drawing.ColorTranslator]::FromHtml("#243E9E")
+        DangerButton        = [System.Drawing.ColorTranslator]::FromHtml("#D93025")
+        DangerButtonText    = [System.Drawing.ColorTranslator]::FromHtml("#FFFFFF")
+        TextBoxBackground   = [System.Drawing.ColorTranslator]::FromHtml("#F8FAFD")
+        GridBackground      = [System.Drawing.ColorTranslator]::FromHtml("#F8FAFD")
     }
     Dark = @{
-        FormBackground      = [System.Drawing.ColorTranslator]::FromHtml("#1e1e1e")
-        GroupBackground     = [System.Drawing.ColorTranslator]::FromHtml("#252526")
-        TextColor           = [System.Drawing.ColorTranslator]::FromHtml("#d4d4d4")
-        PrimaryButton       = [System.Drawing.ColorTranslator]::FromHtml("#0078d4")
-        PrimaryButtonText   = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-        SecondaryButton     = [System.Drawing.ColorTranslator]::FromHtml("#333333")
-        SecondaryButtonText = [System.Drawing.ColorTranslator]::FromHtml("#d4d4d4")
-        DangerButton        = [System.Drawing.ColorTranslator]::FromHtml("#d93025")
-        DangerButtonText    = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-        TextBoxBackground   = [System.Drawing.ColorTranslator]::FromHtml("#1e1e1e")
-        GridBackground      = [System.Drawing.ColorTranslator]::FromHtml("#2d2d30")
+        FormBackground      = [System.Drawing.ColorTranslator]::FromHtml("#0F172A")
+        GroupBackground     = [System.Drawing.ColorTranslator]::FromHtml("#111B33")
+        TextColor           = [System.Drawing.ColorTranslator]::FromHtml("#DCE7FF")
+        MutedText           = [System.Drawing.ColorTranslator]::FromHtml("#94A3B8")
+        BorderColor         = [System.Drawing.ColorTranslator]::FromHtml("#304264")
+        PrimaryButton       = [System.Drawing.ColorTranslator]::FromHtml("#4C6FE0")
+        PrimaryButtonText   = [System.Drawing.ColorTranslator]::FromHtml("#FFFFFF")
+        SecondaryButton     = [System.Drawing.ColorTranslator]::FromHtml("#243457")
+        SecondaryButtonText = [System.Drawing.ColorTranslator]::FromHtml("#DCE7FF")
+        DangerButton        = [System.Drawing.ColorTranslator]::FromHtml("#D93025")
+        DangerButtonText    = [System.Drawing.ColorTranslator]::FromHtml("#FFFFFF")
+        TextBoxBackground   = [System.Drawing.ColorTranslator]::FromHtml("#16213D")
+        GridBackground      = [System.Drawing.ColorTranslator]::FromHtml("#1B2745")
     }
 }
 
 $script:Theme = $script:Themes["Light"]
 
 #endregion
-
-#region Core Helper Functions
-
-# Writes a timestamped message to the log file if logging is enabled in settings.

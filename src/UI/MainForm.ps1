@@ -1,4 +1,4 @@
-function New-APIForm {
+﻿function New-ApiForm {
 
     $script:lastResponseContentType = $null # Store the content type of the last response
     $script:lastResponseText = ""
@@ -99,7 +99,7 @@ function New-APIForm {
         Complete-CollectionRun -Summary "Collection run stopped." -PendingReason "Skipped after manual stop"
     }
 
-    function Handle-CollectionRunnerFormClosing {
+    function Invoke-CollectionRunnerFormClosing {
         param(
             [object]$sender,
             [System.Windows.Forms.FormClosingEventArgs]$e
@@ -309,7 +309,7 @@ function New-APIForm {
                             Write-Log "Rendering response as RTF."
                         } elseif ($contentType -like 'application/json*') {
                             $jsonObj = $responseContent | ConvertFrom-Json # Validate JSON
-                            Populate-JsonTree -JsonData $jsonObj -NodesCollection $treeViewJson.Nodes
+                            Update-JsonTreeView -JsonData $jsonObj -NodesCollection $treeViewJson.Nodes
                             $richTextResponse.Rtf = Format-JsonAsRtf -JsonString $responseContent -FontSize $script:settings.ResponseFontSize
                             Write-Log "Rendering response as formatted JSON."
                         } elseif ($contentType -like 'application/xml*' -or $contentType -like 'text/xml*') {
@@ -511,7 +511,7 @@ function New-APIForm {
                             Complete-CollectionRun -Summary "Run stopped because a request entry is missing request data." -EnableRetry $true -PendingReason "Skipped after missing request data"
                             return
                         }
-                        Load-Request-From-Object -RequestObject $requestObject
+                        Import-RequestFromObject -RequestObject $requestObject
                         Invoke-RequestExecution
                     })
                     $script:collectionRunDelayTimer.Start()
@@ -660,16 +660,16 @@ function Invoke-RequestExecution {
 
     $selectedMethod = if ($script:comboMethod.SelectedItem) { [string]$script:comboMethod.SelectedItem } else { "GET" }
     $selectedBodyType = if ($script:comboBodyType.SelectedItem) { [string]$script:comboBodyType.SelectedItem } else { "text/plain" }
-    $method = (Substitute-Variables -InputString $selectedMethod)
-    $url = (Substitute-Variables -InputString $script:textUrl.Text)
-    $headersRaw = (Substitute-Variables -InputString $script:textHeaders.Text)
-    $bodyRaw = (Substitute-Variables -InputString $script:textBody.Text)
+    $method = (Expand-Variables -InputString $selectedMethod)
+    $url = (Expand-Variables -InputString $script:textUrl.Text)
+    $headersRaw = (Expand-Variables -InputString $script:textHeaders.Text)
+    $bodyRaw = (Expand-Variables -InputString $script:textBody.Text)
     $testsRaw = $script:textTests.Text
 
     # --- GraphQL Logic ---
     if ($selectedBodyType -eq "GraphQL") {
-        $gqlQuery = (Substitute-Variables -InputString $script:txtGqlQuery.Text)
-        $gqlVars = (Substitute-Variables -InputString $script:txtGqlVars.Text)
+        $gqlQuery = (Expand-Variables -InputString $script:txtGqlQuery.Text)
+        $gqlVars = (Expand-Variables -InputString $script:txtGqlVars.Text)
         $payload = @{ query = $gqlQuery }
         if (-not [string]::IsNullOrWhiteSpace($gqlVars)) {
             try { $payload['variables'] = $gqlVars | ConvertFrom-Json } catch { Write-Log "Invalid GraphQL Variables JSON" }
@@ -898,10 +898,10 @@ function Invoke-RequestExecution {
 
     # Generate Code Snippet
     $selectedLang = if ($script:comboCodeLanguage.SelectedItem) { $script:comboCodeLanguage.SelectedItem } else { "cURL" }
-    $richTextCode.Text = Generate-CodeSnippet -RequestItem $script:lastRequestState -Language $selectedLang
+    $richTextCode.Text = New-CodeSnippet -RequestItem $script:lastRequestState -Language $selectedLang
 
     if ($script:settings.LogLevel -eq 'Debug') {
-        $debugCurl = Generate-CodeSnippet -RequestItem $script:lastRequestState -Language "cURL"
+        $debugCurl = New-CodeSnippet -RequestItem $script:lastRequestState -Language "cURL"
         Write-Log "Generated cURL:`r`n$debugCurl"
     }
 
@@ -911,27 +911,27 @@ function Invoke-RequestExecution {
     if ($bodyType -eq "multipart/form-data") {
         $boundary = "---------------------------" + [System.Guid]::NewGuid().ToString("N")
         $encoding = [System.Text.Encoding]::GetEncoding("iso-8859-1")
-        function Write-To-StreamLocal { param([System.IO.MemoryStream]$s, [string]$t) $b = $encoding.GetBytes($t); $s.Write($b,0,$b.Length) }
+        function Write-StreamText { param([System.IO.MemoryStream]$s, [string]$t) $b = $encoding.GetBytes($t); $s.Write($b,0,$b.Length) }
         $ms = New-Object System.IO.MemoryStream
         foreach ($key in $script:formBody.Keys) {
             $val = $script:formBody[$key]
-            Write-To-StreamLocal -s $ms -t "--$boundary`r`n"
+            Write-StreamText -s $ms -t "--$boundary`r`n"
             if ($val -is [hashtable] -and $val.ContainsKey('_Path')) {
                 $fp = $val._Path
                 $fn = if ($val.ContainsKey('Name')) { $val.Name } else { [System.IO.Path]::GetFileName($fp) }
                 $ctype = if ($val.ContainsKey('ContentType')) { $val.ContentType } else { 'application/octet-stream' }
                 $disp = "Content-Disposition: form-data; name=`"$key`"; filename=`"$fn`"`r`n"
-                Write-To-StreamLocal -s $ms -t $disp
-                Write-To-StreamLocal -s $ms -t "Content-Type: $ctype`r`n`r`n"
+                Write-StreamText -s $ms -t $disp
+                Write-StreamText -s $ms -t "Content-Type: $ctype`r`n`r`n"
                 $fb = [System.IO.File]::ReadAllBytes($fp)
                 $ms.Write($fb,0,$fb.Length)
-                Write-To-StreamLocal -s $ms -t "`r`n"
+                Write-StreamText -s $ms -t "`r`n"
             } else {
                 $field = [string]$val
-                Write-To-StreamLocal -s $ms -t "Content-Disposition: form-data; name=`"$key`"`r`n`r`n$field`r`n"
+                Write-StreamText -s $ms -t "Content-Disposition: form-data; name=`"$key`"`r`n`r`n$field`r`n"
             }
         } # End of foreach ($key in $script:formBody.Keys)
-        Write-To-StreamLocal -s $ms -t "--$boundary--`r`n"
+        Write-StreamText -s $ms -t "--$boundary--`r`n"
         $ms.Seek(0,'Begin') | Out-Null
         $multipartBytes = $ms.ToArray()
         $multipartContentType = "multipart/form-data; boundary=$boundary"
@@ -970,8 +970,8 @@ function Invoke-RequestExecution {
         $result = @{ Success = $false; Data = $null; ErrorMessage = "" }
         try {
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-          function Job-Log { param([string]$Message) Write-Verbose "JOB: $Message" } # Use Verbose to avoid polluting output
-            Job-Log "Starting request to $url"
+          function Write-JobLog { param([string]$Message) Write-Verbose "JOB: $Message" } # Use Verbose to avoid polluting output
+            Write-JobLog "Starting request to $url"
 
             if ($ignoreSsl) {
                 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
@@ -1018,9 +1018,40 @@ function Invoke-RequestExecution {
                 }
             }
 
-            foreach ($key in $headers.Keys) { 
-                if ($key -ne 'Content-Type') { # Content-Type is set automatically for body, avoid double-setting
-                    $req.Headers.Add($key, $headers[$key]) 
+            # Restricted headers cannot go through Headers.Add(); they must be set via HttpWebRequest properties.
+            foreach ($key in $headers.Keys) {
+                $val = [string]$headers[$key]
+                try {
+                    switch -Regex ($key.ToLowerInvariant()) {
+                        '^content-type$'      { } # Set automatically alongside the body, avoid double-setting
+                        '^content-length$'    { } # Computed automatically from the body
+                        '^accept$'            { $req.Accept = $val }
+                        '^user-agent$'        { $req.UserAgent = $val }
+                        '^referer$'           { $req.Referer = $val }
+                        '^expect$'            { $req.Expect = $val }
+                        '^connection$'        {
+                            if ($val -match 'keep-alive') { $req.KeepAlive = $true }
+                            elseif ($val -match 'close')  { $req.KeepAlive = $false }
+                            else { $req.Connection = $val }
+                        }
+                        '^transfer-encoding$' { $req.SendChunked = $true; $req.TransferEncoding = $val }
+                        '^date$'              { $req.Date = [datetime]::Parse($val) }
+                        '^if-modified-since$' { $req.IfModifiedSince = [datetime]::Parse($val) }
+                        '^host$'              {
+                            # Known limitation: Host override is not supported on every runtime.
+                            try { $req.Host = $val } catch { Write-Verbose "JOB: Host header override not supported on this runtime: $($_.Exception.Message)" }
+                        }
+                        '^range$'             {
+                            if ($val -match '^\s*bytes\s*=\s*(\d*)\s*-\s*(\d*)\s*$') {
+                                if ($Matches[1] -ne '' -and $Matches[2] -ne '') { $req.AddRange([long]$Matches[1], [long]$Matches[2]) }
+                                elseif ($Matches[1] -ne '')                     { $req.AddRange([long]$Matches[1]) }
+                                elseif ($Matches[2] -ne '')                     { $req.AddRange(-[long]$Matches[2]) }
+                            } else { Write-Verbose "JOB: Unsupported Range header value '$val' skipped" }
+                        }
+                        default               { $req.Headers.Add($key, $val) }
+                    }
+                } catch {
+                    Write-Verbose "JOB: Could not apply header '$key': $($_.Exception.Message)"
                 }
             }
 
@@ -1029,18 +1060,18 @@ function Invoke-RequestExecution {
                 if ($bodyType -eq "multipart/form-data" -and $multipartBytes) {
                     $req.ContentType = $multipartContentType
                     $req.ContentLength = $multipartBytes.Length
-                    Job-Log "Writing prebuilt multipart body, $($multipartBytes.Length) bytes"
+                    Write-JobLog "Writing prebuilt multipart body, $($multipartBytes.Length) bytes"
                     $rs = $req.GetRequestStream()
                     $rs.Write($multipartBytes, 0, $multipartBytes.Length)
                     $rs.Close()
                 } elseif ($bodyType -eq "multipart/form-data") {
-                    Job-Log "Multipart Form-Data Logic: No bytes"
+                    Write-JobLog "Multipart Form-Data Logic: No bytes"
                 } else {
                     if (-not [string]::IsNullOrEmpty($bodyRaw)) {
                         $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($bodyRaw)
                         $req.ContentLength = $bodyBytes.Length
                         $req.ContentType = if ($headers.ContainsKey('Content-Type')) { $headers['Content-Type'] } else { $bodyType }
-                        Job-Log "Request ContentLength (raw) = $($req.ContentLength) bytes"
+                        Write-JobLog "Request ContentLength (raw) = $($req.ContentLength) bytes"
                         $requestStream = $req.GetRequestStream()
                         $requestStream.Write($bodyBytes, 0, $bodyBytes.Length)
                         $requestStream.Close()
@@ -1290,7 +1321,7 @@ function Invoke-RequestExecution {
                     Complete-CollectionRun -Summary "Unable to retry one or more requests because request data is missing." -EnableRetry $true
                     return
                 }
-                Load-Request-From-Object -RequestObject $requestObject
+                Import-RequestFromObject -RequestObject $requestObject
                 $state.parentForm.Tag.btnSubmit.Enabled = $false
                 $state.parentForm.Tag.btnCancel.Enabled = $true
                 $state.parentForm.Tag.btnRepeat.Enabled = $false
@@ -1440,7 +1471,7 @@ function Invoke-RequestExecution {
                     Complete-CollectionRun -Summary "Unable to start one or more requests because request data is missing." -EnableRetry $true
                     return
                 }
-                Load-Request-From-Object -RequestObject $requestObject
+                Import-RequestFromObject -RequestObject $requestObject
                 
                 # Control main form buttons
                 $state.parentForm.Tag.btnSubmit.Enabled = $false
@@ -1459,7 +1490,7 @@ function Invoke-RequestExecution {
         $mainLayout.Controls.Add($grid, 0, 1)
         $mainLayout.Controls.Add($bottomPanel, 0, 2)
         $runnerForm.Controls.Add($mainLayout)
-        $runnerForm.Add_FormClosing({ param($sender, $e) Handle-CollectionRunnerFormClosing -sender $sender -e $e })
+        $runnerForm.Add_FormClosing({ param($sender, $e) Invoke-CollectionRunnerFormClosing -sender $sender -e $e })
 
         $runnerForm.Show($parentForm) # Show non-modally
     }
@@ -1470,12 +1501,12 @@ function Invoke-RequestExecution {
     $script:responseForm = $null # Initialize the undocked response form variable
     $script:isMainFormClosing = $false # New flag to indicate if the main form is closing
     if ($script:settings.EnableHistory) {
-        Load-History
-    } #FIX: Corrected Load-History call
-    Load-Settings
-    Load-RequestTemplates
-    Load-RequestTabs
-    $drafts = Load-DraftState
+        Import-History
+    } #FIX: Corrected Import-History call
+    Import-Settings
+    Import-RequestTemplates
+    Import-RequestTabs
+    $drafts = Import-DraftState
     if ($drafts) {
         $msgResult = [System.Windows.Forms.MessageBox]::Show("An unsaved session (draft) was found. Would you like to restore it?", "Restore Session", 'YesNo', 'Question')
         if ($msgResult -eq 'Yes') {
@@ -1484,10 +1515,10 @@ function Invoke-RequestExecution {
         }
         if (Test-Path $draftsFilePath) { Remove-Item $draftsFilePath -Force }
     }
-    Load-Globals
-    Load-Environments
-    Load-Monitors
-    Load-Collections
+    Import-Globals
+    Import-Environments
+    Import-Monitors
+    Import-Collections
 
     # Initialize dock state from loaded settings, ensuring it's a valid state
     $script:responseDockState = $script:settings.ResponseDockState
@@ -1649,7 +1680,7 @@ function Invoke-RequestExecution {
                                      if ($script:settings.MonitorSmtpTokenExpiry) {
                                          if ([DateTime]::UtcNow -ge [DateTime]$script:settings.MonitorSmtpTokenExpiry) { $shouldRefresh = $true }
                                      } elseif (-not $script:settings.MonitorSmtpPass) { $shouldRefresh = $true }
-                                     if ($shouldRefresh) { Refresh-SmtpToken }
+                                     if ($shouldRefresh) { Update-SmtpToken }
                                 }
                                 $isHtml = $script:settings.MonitorAlertBodyForceHtml -or (Test-IsHtmlBody -Body $emailBody)
                                 Send-SmtpOAuth2 -Server $script:settings.MonitorSmtpServer -Port $script:settings.MonitorSmtpPort -UseSsl $script:settings.MonitorSmtpUseSsl -From $script:settings.MonitorSmtpFrom -To $mon.Alerts.EmailTo -Subject $emailSubject -Body $emailBody -User $script:settings.MonitorSmtpUser -AccessToken $script:settings.MonitorSmtpPass -IsHtml:$isHtml
@@ -1770,77 +1801,9 @@ function Invoke-RequestExecution {
             try {
                 $jsonContent = Get-Content -Path $openFileDialog.FileName -Raw | ConvertFrom-Json
                 
-                if (-not $jsonContent.info -or -not $jsonContent.item) {
-                    throw "Invalid Postman Collection format. Only v2.1 is supported."
-                }
-
-                function Convert-PostmanItems {
-                    param($Items)
-                    $converted = @()
-                    foreach ($item in $Items) {
-                        if ($item.item) {
-                            $folder = [PSCustomObject]@{
-                                Name = $item.name
-                                Type = "Folder"
-                                Items = (Convert-PostmanItems -Items $item.item)
-                            }
-                            $converted += $folder
-                        } elseif ($item.request) {
-                            $req = $item.request
-                            if ($req.url -is [string]) { $url = $req.url } elseif ($req.url.raw) { $url = $req.url.raw } else { $url = "" }
-                            $method = $req.method
-                            
-                            $headers = ""
-                            if ($req.header -is [array]) {
-                                $headers = ($req.header | ForEach-Object { "$($_.key): $($_.value)" }) -join "`r`n"
-                            }
-
-                            $body = ""
-                            $bodyType = "text/plain"
-                            if ($req.body) {
-                                if ($req.body.mode -eq "raw") {
-                                    $body = $req.body.raw
-                                    if ($req.body.options.raw.language -eq "json") { $bodyType = "application/json" }
-                                    elseif ($req.body.options.raw.language -eq "xml") { $bodyType = "application/xml" }
-                                } elseif ($req.body.mode -eq "formdata") {
-                                    $bodyType = "multipart/form-data"
-                                    $lines = @()
-                                    foreach ($fd in $req.body.formdata) {
-                                        if ($fd.type -eq "file") { $lines += "$($fd.key)=@`"$($fd.src)`"" }
-                                        else { $lines += "$($fd.key)=$($fd.value)" }
-                                    }
-                                    $body = $lines -join "`r`n"
-                                } elseif ($req.body.mode -eq "urlencoded") {
-                                    $bodyType = "application/x-www-form-urlencoded"
-                                    $pairs = @()
-                                    foreach ($ue in $req.body.urlencoded) {
-                                        $pairs += "$([uri]::EscapeDataString($ue.key))=$([uri]::EscapeDataString($ue.value))"
-                                    }
-                                    $body = $pairs -join "&"
-                                }
-                            }
-
-                            $authData = @{ Type = "No Auth" }
-                            if ($req.auth) {
-                                if ($req.auth.type -eq "basic") {
-                                    $u = ($req.auth.basic | Where-Object { $_.key -eq "username" }).value
-                                    $p = ($req.auth.basic | Where-Object { $_.key -eq "password" }).value
-                                    $authData = @{ Type = "Basic Auth"; Username = $u; Password = $p }
-                                } elseif ($req.auth.type -eq "bearer") {
-                                    $t = ($req.auth.bearer | Where-Object { $_.key -eq "token" }).value
-                                    $authData = @{ Type = "Bearer Token"; Token = $t }
-                                }
-                            }
-
-                            $converted += [PSCustomObject]@{ Name = $item.name; Type = "Request"; RequestData = [PSCustomObject]@{ Timestamp = Get-Date; Method = $method; Url = $url; Headers = $headers; Body = $body; BodyType = $bodyType; OutputFormat = ""; Tests = ""; PreRequestScript = ""; Authentication = $authData } }
-                        }
-                    }
-                    return $converted
-                }
-
-                $importedItems = Convert-PostmanItems -Items $jsonContent.item
-                $script:collections += [PSCustomObject]@{ Name = $jsonContent.info.name; Type = "Collection"; Items = $importedItems; Variables = @{} }
-                Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
+                $newCollection = Convert-PostmanCollection -PostmanJson $jsonContent
+                $script:collections += $newCollection
+                Update-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
                 Save-Collections
                 [System.Windows.Forms.MessageBox]::Show("Postman collection imported successfully.", "Import Complete", "OK", "Information")
             } catch {
@@ -1870,6 +1833,7 @@ function Invoke-RequestExecution {
                     }
                     $labelInfo = New-Label -Text "Select components to import from workspace." -Location (New-Object System.Drawing.Point(15, 15)) -Size (New-Object System.Drawing.Size(280, 20))
                     $checkImportEnvironments = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import Environments"; Location = (New-Object System.Drawing.Point(18, 45)); AutoSize = $true }
+                    $checkImportHistory = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import History"; Location = (New-Object System.Drawing.Point(18, 75)); AutoSize = $true }
                     $checkImportGlobals = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import Globals"; Location = (New-Object System.Drawing.Point(18, 105)); AutoSize = $true }
                     $checkImportCollections = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Import Collections"; Location = (New-Object System.Drawing.Point(18, 135)); AutoSize = $true }
 
@@ -1907,17 +1871,17 @@ function Invoke-RequestExecution {
 
                         # Reload everything into the current session
                         Write-Log "Workspace import complete. Reloading UI."
-                        Load-Settings
-                        Load-Globals
-                        Load-Environments
-                        Load-Collections
-                        if ($script:settings.EnableHistory) { Load-History }
-                        Populate-EnvironmentDropdown
-                        Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
+                        Import-Settings
+                        Import-Globals
+                        Import-Environments
+                        Import-Collections
+                        if ($script:settings.EnableHistory) { Import-History }
+                        Update-EnvironmentDropdown
+                        Update-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
                         $script:activeCollectionNode = $null
                         $script:activeCollectionVariables = @{}
                         Update-Layout
-                        Populate-HistoryList
+                        Update-HistoryListView
                         [System.Windows.Forms.MessageBox]::Show("Workspace components successfully imported. The application will now reflect the changes.", "Import Successful", "OK", "Information")
                         $importOptionsForm.Close()
                     }
@@ -2152,7 +2116,7 @@ function Invoke-RequestExecution {
 
     $btnManageEnvs = New-Button -Text "Manage..." -OnClick {
         Show-EnvironmentManagerWindow -parentForm $form
-        Populate-EnvironmentDropdown
+        Update-EnvironmentDropdown
     } -Property @{
         Width = 100
         Height = 35
@@ -2167,7 +2131,7 @@ function Invoke-RequestExecution {
     $groupEnvironment.Controls.Add($panelEnvInner)
 
     # Populates the environment dropdown, preserving the current selection if possible.
-    function Populate-EnvironmentDropdown {
+    function Update-EnvironmentDropdown {
         $currentSelection = $script:comboEnvironment.SelectedItem
         $script:comboEnvironment.Items.Clear()
         $script:comboEnvironment.Items.Add("No Environment") # Always include this option
@@ -2338,7 +2302,7 @@ function Invoke-RequestExecution {
     $panelOutputFormat.BringToFront()
 
     # Updates UI elements based on current settings, such as toggling control visibility.
-    function Update-UI-Mode {
+    function Update-UiMode {
         $showOutputFileControls = -not $script:settings.AutoSaveToFile
         
         $labelOutputFile.Visible = $showOutputFileControls
@@ -2450,7 +2414,7 @@ function Invoke-RequestExecution {
         # Suspend layout logic to prevent flickering during updates
         $form.SuspendLayout()
         $mainContentSplitter.SuspendLayout()
-        Update-UI-Mode
+        Update-UiMode
 
         # Update checkmarks on the docking context menu
         $dockBottomMenuItem.Checked = ($script:responseDockState -eq 'Bottom')
@@ -2818,7 +2782,7 @@ function Invoke-RequestExecution {
     $script:panelMultipart.Controls.Add($multipartToolbar)
 
     # Helper function to re-evaluate and update all file lines in the body text
-    function Apply-Attributes-To-AllFileLines {
+    function Set-AttributesToAllFileLines {
         $lines = $script:textBody.Text.Split([string[]]@("`r`n", "`n"), [StringSplitOptions]::None)
         $updatedLines = foreach ($line in $lines) {
             $trimmedLine = $line.Trim()
@@ -3151,7 +3115,7 @@ function Invoke-RequestExecution {
         return "Request $Index"
     }
 
-    function Capture-CurrentRequestState {
+    function Get-CurrentRequestState {
         $existing = Get-ActiveRequestTabState
         $captured = New-RequestTabState -Name "$(if ($existing) { $existing.Name } else { "Request" })" `
             -Method ([string]$script:comboMethod.SelectedItem) `
@@ -3183,7 +3147,7 @@ function Invoke-RequestExecution {
         $current = Get-ActiveRequestTabState
         if (-not $current -or $script:isSwitchingRequestTab) { return }
         if ($script:comboBodyType.SelectedItem -eq "multipart/form-data") { Sync-MultipartGridToBody }
-        $captured = Capture-CurrentRequestState
+        $captured = Get-CurrentRequestState
         for ($i = 0; $i -lt $script:requestTabs.Count; $i++) {
             if ($script:requestTabs[$i].Id -eq $captured.Id) {
                 $script:requestTabs[$i] = $captured
@@ -3220,10 +3184,10 @@ function Invoke-RequestExecution {
         }
     }
 
-    function Apply-RequestStateToUi {
+    function Set-RequestStateToUi {
         param([object]$RequestState)
         if (-not $RequestState) { return }
-        Ensure-RequestTabDefaults -TabState $RequestState
+        Initialize-RequestTabDefaults -TabState $RequestState
         $script:isSwitchingRequestTab = $true
         try {
             $script:textUrl.Text = $RequestState.Url
@@ -3283,14 +3247,14 @@ function Invoke-RequestExecution {
         }
     }
 
-    function Refresh-RequestTabsStrip {
+    function Update-RequestTabsStrip {
         if (-not $script:requestTabsStrip) { return }
         $script:isSwitchingRequestTab = $true
         try {
             $script:requestTabsStrip.TabPages.Clear()
             $idx = 1
             foreach ($tabState in $script:requestTabs) {
-                Ensure-RequestTabDefaults -TabState $tabState
+                Initialize-RequestTabDefaults -TabState $tabState
                 $page = New-Object System.Windows.Forms.TabPage
                 $page.Text = Get-RequestTabDisplayName -RequestState $tabState -Index $idx
                 $page.Tag = $tabState.Id
@@ -3310,7 +3274,7 @@ function Invoke-RequestExecution {
         Save-ActiveRequestTabState
         $script:activeRequestTabId = $TabId
         $target = @($script:requestTabs | Where-Object { $_.Id -eq $TabId })[0]
-        Apply-RequestStateToUi -RequestState $target
+        Set-RequestStateToUi -RequestState $target
         Save-RequestTabs
         Update-RequestTabNamesInUi
     }
@@ -3320,7 +3284,7 @@ function Invoke-RequestExecution {
         Save-ActiveRequestTabState
         $newState = if ($InitialState) { Copy-RequestData $InitialState } else { $null }
         if ($newState) {
-            Ensure-RequestTabDefaults -TabState $newState
+            Initialize-RequestTabDefaults -TabState $newState
             $newState.Id = [guid]::NewGuid().ToString()
             if ([string]::IsNullOrWhiteSpace($newState.Name)) {
                 $newState.Name = "Request $($script:requestTabs.Count + 1)"
@@ -3330,8 +3294,8 @@ function Invoke-RequestExecution {
         }
         $script:requestTabs += $newState
         $script:activeRequestTabId = $newState.Id
-        Refresh-RequestTabsStrip
-        Apply-RequestStateToUi -RequestState $newState
+        Update-RequestTabsStrip
+        Set-RequestStateToUi -RequestState $newState
         Save-RequestTabs
     }
 
@@ -3345,8 +3309,8 @@ function Invoke-RequestExecution {
         $script:requestTabs = @($script:requestTabs | Where-Object { $_.Id -ne $script:activeRequestTabId })
         if ($currentIndex -ge $script:requestTabs.Count) { $currentIndex = $script:requestTabs.Count - 1 }
         $script:activeRequestTabId = $script:requestTabs[$currentIndex].Id
-        Refresh-RequestTabsStrip
-        Apply-RequestStateToUi -RequestState (Get-ActiveRequestTabState)
+        Update-RequestTabsStrip
+        Set-RequestStateToUi -RequestState (Get-ActiveRequestTabState)
         Save-RequestTabs
     }
 
@@ -3383,7 +3347,7 @@ function Invoke-RequestExecution {
                         break
                     }
                 }
-                Apply-RequestStateToUi -RequestState $templateCopy
+                Set-RequestStateToUi -RequestState $templateCopy
                 Save-RequestTabs
                 Update-RequestTabNamesInUi
             }
@@ -3393,7 +3357,7 @@ function Invoke-RequestExecution {
             Save-ActiveRequestTabState
             $name = Show-InputBox -Prompt "Enter a template name:" -Title "Save Template" -DefaultText "Template $($script:requestTemplates.Count + 1)"
             if ([string]::IsNullOrWhiteSpace($name)) { return }
-            $templateState = Capture-CurrentRequestState
+            $templateState = Get-CurrentRequestState
             $templateState.Id = [guid]::NewGuid().ToString()
             $templateState.Name = $name.Trim()
             $script:requestTemplates += $templateState
@@ -3574,251 +3538,9 @@ function Invoke-RequestExecution {
     $groupResponse.ContextMenuStrip = $responsePanelContextMenu
 
     # Generates a code snippet string based on a request object.
-    function Generate-CodeSnippet {
-        param(
-            [PSCustomObject]$RequestItem,
-            [string]$Language = "cURL"
-        )
-        if (-not $RequestItem) { return "" }
+    # The code-snippet generator lives in Core/CodeGenerator.ps1 (New-CodeSnippet).
 
-        $method = $RequestItem.Method
-        $url = $RequestItem.Url
-        $headersRaw = $RequestItem.Headers
-        $bodyRaw = $RequestItem.Body
-        $bodyType = $RequestItem.BodyType
-
-        # Parse headers
-        $headers = @{}
-        foreach ($line in $headersRaw -split "`n") {
-            if ($line -match "^\s*(.+?):\s*(.+)$") {
-                $headers[$matches[1]] = $matches[2]
-            }
-        }
-
-        $sb = New-Object System.Text.StringBuilder
-
-        switch ($Language) {
-            "cURL" {
-                $curlParts = @("curl -X '$method' \")
-                foreach ($key in $headers.Keys) {
-                    $curlParts += "  -H '$($key): $($headers[$key])' \"
-                }
-
-                if ($bodyType -eq "multipart/form-data") {
-                    if (-not $headers.ContainsKey("Content-Type")) {
-                        $curlParts += "  -H 'Content-Type: multipart/form-data' \"
-                    }
-                    foreach ($line in $bodyRaw -split "`n" | Where-Object { $_ -match '\S' }) {
-                        if ($line -match '^\s*([^=]+?)\s*=\s*@("([^"]+)"|([^;`\r`n]+))((?:;[^=]+=[^;]+)*)\s*$') {
-                            $key = $matches[1].Trim()
-                            if ($matches[3]) { $filePath = $matches[3] } else { $filePath = $matches[4] }
-                            $attributes = $matches[5]
-                            $curlParts += "  -F '$key=@$filePath$attributes' \"
-                        } elseif ($line -match '^\s*([^=]+?)\s*=\s*(.*)') {
-                            $key = $matches[1].Trim()
-                            $value = $matches[2].Trim()
-                            $curlParts += "  -F '$key=$value' \"
-                        }
-                    }
-                } else {
-                if (-not $headers.ContainsKey("Content-Type")) { 
-                    if ($bodyRaw) { $rawContentType = $bodyType } else { $rawContentType = 'text/plain' }
-                    $curlParts += "  -H 'Content-Type: $rawContentType' \" 
-                }
-                    if ($bodyRaw) { $curlParts += "  -d '$($bodyRaw -replace "'", "'\''")' \" }
-                }
-                $curlParts += "  '$url'"
-                return ($curlParts -join "`n").TrimEnd(' \')
-            }
-            "PowerShell" {
-                $sb.AppendLine("`$headers = @{") | Out-Null
-                foreach ($key in $headers.Keys) {
-                    $sb.AppendLine("    '$key' = '$($headers[$key])'") | Out-Null
-                }
-                $sb.AppendLine("}") | Out-Null
-                $sb.AppendLine("") | Out-Null
-                
-                $params = "-Method $method -Uri '$url' -Headers `$headers"
-                
-                if ($bodyRaw) {
-                    $sb.AppendLine("`$body = @'") | Out-Null
-                    $sb.AppendLine($bodyRaw) | Out-Null
-                    $sb.AppendLine("'@") | Out-Null
-                    $params += " -Body `$body"
-                    if (-not $headers.ContainsKey("Content-Type") -and $bodyType -ne 'multipart/form-data') {
-                         $params += " -ContentType '$bodyType'"
-                    }
-                }
-                $sb.AppendLine("Invoke-RestMethod $params") | Out-Null
-                return $sb.ToString()
-            }
-            "Python" {
-                $sb.AppendLine("import requests") | Out-Null
-                $sb.AppendLine("") | Out-Null
-                $sb.AppendLine("url = '$url'") | Out-Null
-                $sb.AppendLine("headers = {") | Out-Null
-                foreach ($key in $headers.Keys) {
-                    if ($key -ne "Content-Type") {
-                        $sb.AppendLine("    '$key': '$($headers[$key])',") | Out-Null
-                    }
-                }
-                $sb.AppendLine("}") | Out-Null
-                
-                if ($bodyType -eq "multipart/form-data") {
-                    $sb.AppendLine("files = [") | Out-Null
-                    foreach ($line in $bodyRaw -split "`n" | Where-Object { $_ -match '\S' }) {
-                        if ($line -match '^\s*([^=]+?)\s*=\s*@("([^"]+)"|([^;`\r`n]+))((?:;[^=]+=[^;]+)*)\s*$') {
-                            $key = $matches[1].Trim()
-                            $path = if ($matches[3]) { $matches[3] } else { $matches[4] }
-                            $attrs = $matches[5]
-                            $fn = [System.IO.Path]::GetFileName($path)
-                            $ct = $null
-                            if ($attrs -match 'filename=([^;]+)') { $fn = $matches[1] }
-                            if ($attrs -match 'type=([^;]+)') { $ct = $matches[1] }
-                            $tuple = "('$key', ('$fn', open(r'$path', 'rb')"
-                            if ($ct) { $tuple += ", '$ct'" }
-                            $tuple += "))"
-                            $sb.AppendLine("  $tuple,") | Out-Null
-                        } elseif ($line -match '^\s*([^=]+?)\s*=\s*(.*)') {
-                            $key = $matches[1].Trim()
-                            $val = $matches[2].Trim()
-                            $sb.AppendLine("  ('$key', (None, '$val')),") | Out-Null
-                        }
-                    }
-                    $sb.AppendLine("]") | Out-Null
-                    $sb.AppendLine("response = requests.request('$method', url, headers=headers, files=files)") | Out-Null
-                } else {
-                    if ($bodyRaw) {
-                        $sb.AppendLine("payload = '''$bodyRaw'''") | Out-Null
-                        $sb.AppendLine("response = requests.request('$method', url, headers=headers, data=payload)") | Out-Null
-                    } else {
-                        $sb.AppendLine("response = requests.request('$method', url, headers=headers)") | Out-Null
-                    }
-                }
-                $sb.AppendLine("print(response.text)") | Out-Null
-                return $sb.ToString()
-            }
-            "C#" {
-                $sb.AppendLine("var client = new HttpClient();") | Out-Null
-                $sb.AppendLine("var request = new HttpRequestMessage(HttpMethod.$([cultureinfo]::CurrentCulture.TextInfo.ToTitleCase($method.ToLower())), `"$url`");") | Out-Null
-                
-                foreach ($key in $headers.Keys) {
-                    if ($key -ne "Content-Type") {
-                        $sb.AppendLine("request.Headers.Add(`"$key`", `"$($headers[$key])`");") | Out-Null
-                    }
-                }
-                
-                if ($bodyRaw) {
-                    if ($bodyType -eq "multipart/form-data") {
-                        $sb.AppendLine("var content = new MultipartFormDataContent();") | Out-Null
-                        foreach ($line in $bodyRaw -split "`n" | Where-Object { $_ -match '\S' }) {
-                            if ($line -match '^\s*([^=]+?)\s*=\s*(.*)') {
-                                $key = $matches[1].Trim()
-                                $val = $matches[2].Trim()
-                                if ($val -match '^@') {
-                                    $sb.AppendLine("content.Add(new StreamContent(File.OpenRead(`"$($val.Substring(1))`")), `"$key`", `"$($val.Substring(1))`");") | Out-Null
-                                } else {
-                                    $sb.AppendLine("content.Add(new StringContent(`"$val`"), `"$key`");") | Out-Null
-                                }
-                            }
-                        }
-                    } else {
-                        $sb.AppendLine("var content = new StringContent(`"$($bodyRaw -replace '"', '\"' -replace '`n', '\n' -replace '`r', '')`", null, `"$bodyType`");") | Out-Null
-                    }
-                    $sb.AppendLine("request.Content = content;") | Out-Null
-                }
-                
-                $sb.AppendLine("var response = await client.SendAsync(request);") | Out-Null
-                $sb.AppendLine("response.EnsureSuccessStatusCode();") | Out-Null
-                $sb.AppendLine("Console.WriteLine(await response.Content.ReadAsStringAsync());") | Out-Null
-                return $sb.ToString()
-            }
-            "JavaScript" {
-                $sb.AppendLine("const myHeaders = new Headers();") | Out-Null
-                foreach ($key in $headers.Keys) {
-                    if ($key -ne "Content-Type") {
-                        $sb.AppendLine("myHeaders.append('$key', '$($headers[$key])');") | Out-Null
-                    }
-                }
-                $sb.AppendLine("") | Out-Null
-                
-                if ($bodyType -eq "multipart/form-data") {
-                    $sb.AppendLine("const formdata = new FormData();") | Out-Null
-                    foreach ($line in $bodyRaw -split "`n" | Where-Object { $_ -match '\S' }) {
-                        if ($line -match '^\s*([^=]+?)\s*=\s*@("([^"]+)"|([^;`\r`n]+))((?:;[^=]+=[^;]+)*)\s*$') {
-                            $key = $matches[1].Trim()
-                            $path = if ($matches[3]) { $matches[3] } else { $matches[4] }
-                            $attrs = $matches[5]
-                            $fn = [System.IO.Path]::GetFileName($path)
-                            if ($attrs -match 'filename=([^;]+)') { $fn = $matches[1] }
-                            $sb.AppendLine("formdata.append('$key', fileInput.files[0], '$fn');") | Out-Null
-                        } elseif ($line -match '^\s*([^=]+?)\s*=\s*(.*)') {
-                            $key = $matches[1].Trim()
-                            $val = $matches[2].Trim()
-                            $sb.AppendLine("formdata.append('$key', '$val');") | Out-Null
-                        }
-                    }
-                    $sb.AppendLine("") | Out-Null
-                    $sb.AppendLine("const requestOptions = {") | Out-Null
-                    $sb.AppendLine("  method: '$method',") | Out-Null
-                    $sb.AppendLine("  headers: myHeaders,") | Out-Null
-                    $sb.AppendLine("  body: formdata,") | Out-Null
-                    $sb.AppendLine("  redirect: 'follow'") | Out-Null
-                    $sb.AppendLine("};") | Out-Null
-                } else {
-                    $sb.AppendLine("const requestOptions = {") | Out-Null
-                    $sb.AppendLine("  method: '$method',") | Out-Null
-                    $sb.AppendLine("  headers: myHeaders,") | Out-Null
-                    if ($bodyRaw) {
-                        $sb.AppendLine("  body: `$(`"$bodyRaw`"),") | Out-Null
-                    }
-                    $sb.AppendLine("  redirect: 'follow'") | Out-Null
-                    $sb.AppendLine("};") | Out-Null
-                }
-                $sb.AppendLine("") | Out-Null
-                $sb.AppendLine("fetch('$url', requestOptions)") | Out-Null
-                $sb.AppendLine("  .then(response => response.text())") | Out-Null
-                $sb.AppendLine("  .then(result => console.log(result))") | Out-Null
-                $sb.AppendLine("  .catch(error => console.error('error', error));") | Out-Null
-                return $sb.ToString()
-            }
-            "C#" {
-                $sb.AppendLine("var client = new HttpClient();") | Out-Null
-                $sb.AppendLine("var request = new HttpRequestMessage(new HttpMethod(`"$method`"), `"$url`");") | Out-Null
-                foreach ($key in $headers.Keys) {
-                    if ($key -ne "Content-Type") {
-                        $sb.AppendLine("request.Headers.Add(`"$key`", `"$($headers[$key])`");") | Out-Null
-                    }
-                }
-                if ($bodyType -eq "multipart/form-data") {
-                    $sb.AppendLine("var content = new MultipartFormDataContent();") | Out-Null
-                    foreach ($line in $bodyRaw -split "`n" | Where-Object { $_ -match '\S' }) {
-                        if ($line -match '^\s*([^=]+?)\s*=\s*@("([^"]+)"|([^;`\r`n]+))((?:;[^=]+=[^;]+)*)\s*$') {
-                            $key = $matches[1].Trim(); $path = if ($matches[3]) { $matches[3] } else { $matches[4] }; $fn = [System.IO.Path]::GetFileName($path); $safePath = $path.Replace('\', '\\')
-                            $sb.AppendLine("content.Add(new StreamContent(File.OpenRead(`"$safePath`")), `"$key`", `"$fn`");") | Out-Null
-                        } elseif ($line -match '^\s*([^=]+?)\s*=\s*(.*)') {
-                            $key = $matches[1].Trim(); $val = $matches[2].Trim()
-                            $sb.AppendLine("content.Add(new StringContent(`"$val`"), `"$key`");") | Out-Null
-                        }
-                    }
-                    $sb.AppendLine("request.Content = content;") | Out-Null
-                } elseif ($bodyRaw) {
-                    $mediaType = if ($headers.ContainsKey("Content-Type")) { $headers["Content-Type"] } elseif ($bodyType) { $bodyType } else { "text/plain" }
-                    $safeBody = $bodyRaw.Replace('\', '\\').Replace('"', '\"')
-                    $sb.AppendLine("var content = new StringContent(`"$safeBody`", null, `"$mediaType`");") | Out-Null
-                    $sb.AppendLine("request.Content = content;") | Out-Null
-                }
-                $sb.AppendLine("var response = await client.SendAsync(request);") | Out-Null
-                $sb.AppendLine("response.EnsureSuccessStatusCode();") | Out-Null
-                $sb.AppendLine("Console.WriteLine(await response.Content.ReadAsStringAsync());") | Out-Null
-                return $sb.ToString()
-            }
-        }
-        return ""
-    }
-
-    # Helper to populate JSON TreeView
-    function Populate-JsonTree {
+    function Update-JsonTreeView {
         param($JsonData, $NodesCollection)
         $NodesCollection.Clear()
         $NodesCollection.Owner.BeginUpdate()
@@ -4089,7 +3811,7 @@ function Invoke-RequestExecution {
         return @([regex]::Matches($richTextResponse.Text, $pattern, $options))
     }
 
-    function Apply-ResponseSearchHighlights {
+    function Set-ResponseSearchHighlights {
         param(
             [array]$Matches,
             [int]$CurrentIndex
@@ -4126,7 +3848,7 @@ function Invoke-RequestExecution {
             $script:responseSearchCurrentIndex = if ($matches.Count -gt 0) { 0 } else { -1 }
 
             if ($matches.Count -gt 0) {
-                Apply-ResponseSearchHighlights -Matches $matches -CurrentIndex $script:responseSearchCurrentIndex
+                Set-ResponseSearchHighlights -Matches $matches -CurrentIndex $script:responseSearchCurrentIndex
 
                 $script:labelSearchStatus.Text = "$($matches.Count) Found"
                 $script:labelSearchStatus.ForeColor = [System.Drawing.Color]::Green
@@ -4136,11 +3858,11 @@ function Invoke-RequestExecution {
             } else {
                 $script:labelSearchStatus.Text = "0 Found"
                 $script:labelSearchStatus.ForeColor = [System.Drawing.Color]::Red
-                Apply-ResponseSearchHighlights -Matches @() -CurrentIndex -1
+                Set-ResponseSearchHighlights -Matches @() -CurrentIndex -1
             }
         } else {
             $script:labelSearchStatus.Text = ""
-            Apply-ResponseSearchHighlights -Matches @() -CurrentIndex -1
+            Set-ResponseSearchHighlights -Matches @() -CurrentIndex -1
         }
         $script:textSearchResponse.Focus()
     }
@@ -4179,7 +3901,7 @@ function Invoke-RequestExecution {
             $script:responseSearchCurrentIndex = [array]::IndexOf($matches, $prevMatch)
         }
 
-        Apply-ResponseSearchHighlights -Matches $matches -CurrentIndex $script:responseSearchCurrentIndex
+        Set-ResponseSearchHighlights -Matches $matches -CurrentIndex $script:responseSearchCurrentIndex
         $richTextResponse.ScrollToCaret()
         $richTextResponse.Focus() # Focus RTB to show selection
     }
@@ -4194,7 +3916,7 @@ function Invoke-RequestExecution {
         Margin = [System.Windows.Forms.Padding]::new(5, 0, 0, 0)
     } -OnClick {
         $responseSearchPanel.Visible = $false
-        Apply-ResponseSearchHighlights -Matches @() -CurrentIndex -1
+        Set-ResponseSearchHighlights -Matches @() -CurrentIndex -1
     }
     $toolTip.SetToolTip($script:btnCloseSearch, "Close Find Bar")
 
@@ -4737,7 +4459,7 @@ function Invoke-RequestExecution {
 
     $script:comboCodeLanguage.Add_SelectedIndexChanged({
         if ($script:lastRequestState) {
-            $richTextCode.Text = Generate-CodeSnippet -RequestItem $script:lastRequestState -Language $script:comboCodeLanguage.SelectedItem
+            $richTextCode.Text = New-CodeSnippet -RequestItem $script:lastRequestState -Language $script:comboCodeLanguage.SelectedItem
         }
     })
 
@@ -4763,7 +4485,7 @@ function Invoke-RequestExecution {
     }
 
     # Populates the history listbox from the $script:history array.
-    function Populate-HistoryList { # Renamed from Populate-HistoryTab
+    function Update-HistoryListView { # Renamed from Populate-HistoryTab
         param(
             [string]$TextFilter,
             [string]$EnvironmentFilter
@@ -4806,7 +4528,7 @@ function Invoke-RequestExecution {
         }
     }
 
-    function Populate-HistoryEnvironmentFilter {
+    function Update-HistoryEnvironmentFilter {
         $currentSelection = $comboHistoryEnvFilter.SelectedItem
         $comboHistoryEnvFilter.Items.Clear()
         $comboHistoryEnvFilter.Items.Add("All Environments")
@@ -4815,7 +4537,7 @@ function Invoke-RequestExecution {
     }
 
     # Recursively populates the TreeView with collections, folders, and requests.
-    function Populate-CollectionsTreeView {
+    function Update-CollectionsTreeView {
         param ([System.Windows.Forms.TreeNodeCollection]$nodes, [array]$items)
 
         $nodes.Clear()
@@ -4833,7 +4555,7 @@ function Invoke-RequestExecution {
                 $newNode.SelectedImageIndex = 2
             }
         $nodes.Add($newNode) | Out-Null # Add node to TreeView
-            if ($item.Items) { Populate-CollectionsTreeView -nodes $newNode.Nodes -items $item.Items }
+            if ($item.Items) { Update-CollectionsTreeView -nodes $newNode.Nodes -items $item.Items }
         }
     }
 
@@ -4885,7 +4607,7 @@ function Invoke-RequestExecution {
         if ($name) {
             $newCollection = [PSCustomObject]@{ Name = $name; Type = "Collection"; Items = @(); Variables = @{} } # Create new collection object
             $script:collections += $newCollection #FIX: Corrected collection creation
-            Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
+            Update-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
             Save-Collections #FIX: Corrected function call
         }
     })
@@ -4896,7 +4618,7 @@ function Invoke-RequestExecution {
             if ($name) {
                 $newFolder = [PSCustomObject]@{ Name = $name; Type = "Folder"; Items = @() }
                 $selectedNode.Tag.Items += $newFolder
-                Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
+                Update-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
                 $selectedNode.Expand()
                 Save-Collections
             }
@@ -4924,7 +4646,7 @@ function Invoke-RequestExecution {
                     }
                 }
                 $selectedNode.Tag.Items += $newRequest
-                Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
+                Update-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
                 $selectedNode.Expand()
                 Save-Collections
             }
@@ -5005,9 +4727,9 @@ function Invoke-RequestExecution {
         $ofd.Title = "Import OpenAPI Specification"
         if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
-                $newFolder = Parse-OpenApiSpec -FilePath $ofd.FileName
+                $newFolder = ConvertFrom-OpenApiSpec -FilePath $ofd.FileName
                 $script:collections += $newFolder
-                Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
+                Update-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
                 Save-Collections
                 [System.Windows.Forms.MessageBox]::Show("OpenAPI specification imported successfully.", "Import Success", "OK", "Information")
             } catch {
@@ -5082,7 +4804,7 @@ function Invoke-RequestExecution {
                 $selectedHistoryItem = Get-RequestObjectFromItem -Item $selectedNode.Tag
                 if ($selectedHistoryItem) {
                     # This reuses the existing history loading logic
-                    Load-Request-From-Object -RequestObject $selectedHistoryItem
+                    Import-RequestFromObject -RequestObject $selectedHistoryItem
                     Write-Log "Loaded request '$($selectedNode.Tag.Name)' from collection."
                 } else {
                     [System.Windows.Forms.MessageBox]::Show("This collection entry does not contain runnable request data.", "Missing Request Data", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
@@ -5124,43 +4846,23 @@ function Invoke-RequestExecution {
         Width = 180 
         Margin = [System.Windows.Forms.Padding]::new(0, 0, 10, 0) 
     } -OnClick {
-        $ofd = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter = "JSON Files (*.json)|*.json"; Title = "Import Collections" }
+        $ofd = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Filter = "Collections (*.json;*.yaml;*.yml)|*.json;*.yaml;*.yml|All Files (*.*)|*.*"; Title = "Import Collections (API Tester, Postman or OpenAPI)" }
         if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             $confirm = [System.Windows.Forms.MessageBox]::Show("Are you sure you want to import collections? This will append the imported items to your current list.", "Confirm Import", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
             if ($confirm -eq [System.Windows.Forms.DialogResult]::Yes) {
                 try {
-                    $imported = Get-Content -Path $ofd.FileName -Raw | ConvertFrom-Json
-                        if ($imported) {
-                            if ($imported -is [array]) {
-                                $script:collections += $imported
-                            } else {
-                                $script:collections += @($imported)
-                            }
-                            Ensure-CollectionVariables -Items $script:collections
-                            Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
-                            Save-Collections
-                            [System.Windows.Forms.MessageBox]::Show("Collections imported successfully.", "Import", "OK", "Information")
-                        }
+                    $imported = Import-CollectionFile -FilePath $ofd.FileName
+                    if ($imported) {
+                        $script:collections += @($imported)
+                        Initialize-CollectionVariables -Items $script:collections
+                        Update-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
+                        Save-Collections
+                        [System.Windows.Forms.MessageBox]::Show("Collections imported successfully.", "Import", "OK", "Information")
+                    }
                 } catch { [System.Windows.Forms.MessageBox]::Show("Import failed: $($_.Exception.Message)", "Error", "OK", "Error") }
             }
         }
     }
-
-    $btnExportCollections = New-Button -Text "Export" -Property @{ 
-        Dock = 'Left'
-        Margin = [System.Windows.Forms.Padding]::new(0, 0, 3, 0)
-        Width = 180
-    } -OnClick {
-        $sfd = New-Object System.Windows.Forms.SaveFileDialog -Property @{ Filter = "JSON Files (*.json)|*.json"; FileName = "api_tester_collections_export.json"; Title = "Export Collections" }
-        if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            try {
-                $script:collections | ConvertTo-Json -Depth 10 | Set-Content -Path $sfd.FileName -ErrorAction Stop
-                [System.Windows.Forms.MessageBox]::Show("Collections exported successfully.", "Export", "OK", "Information")
-            } catch { [System.Windows.Forms.MessageBox]::Show("Export failed: $($_.Exception.Message)", "Error", "OK", "Error") }
-        }
-    }
-
-    # Add controls in docking order (Left, then Left)
     $panelCollectionsBottom.Controls.AddRange(@($btnImportCollections, $btnExportCollections))
 
     $tabCollections.Controls.AddRange(@($treeViewCollections, $panelCollectionsBottom))
@@ -5210,13 +4912,13 @@ function Invoke-RequestExecution {
         param($sender, $e)
         # Avoid filtering when the placeholder text is present
         if ($sender.Text -ne "Search by Method/URL...") {
-            Populate-HistoryList -TextFilter $sender.Text -EnvironmentFilter $comboHistoryEnvFilter.SelectedItem
+            Update-HistoryListView -TextFilter $sender.Text -EnvironmentFilter $comboHistoryEnvFilter.SelectedItem
         }
     })
 
     $comboHistoryEnvFilter.Add_SelectedIndexChanged({
         if ($textSearchHistory.Text -eq "Search by Method/URL...") { $textFilter = "" } else { $textFilter = $textSearchHistory.Text }
-        Populate-HistoryList -TextFilter $textFilter -EnvironmentFilter $comboHistoryEnvFilter.SelectedItem
+        Update-HistoryListView -TextFilter $textFilter -EnvironmentFilter $comboHistoryEnvFilter.SelectedItem
     })
 
     # Add controls to panel and apply docking precedence
@@ -5282,7 +4984,7 @@ function Invoke-RequestExecution {
             $script:activeCollectionName = $null
             $script:activeCollectionNode = $null
             $script:activeCollectionVariables = @{}
-            Load-Request-From-Object -RequestObject $historyObject
+            Import-RequestFromObject -RequestObject $historyObject
             Write-Log "Duplicated request from history: $($historyObject.Url)"
         }
     })
@@ -5300,7 +5002,7 @@ function Invoke-RequestExecution {
         $selectedItem = $listHistory.SelectedItem
         if ($selectedItem) {
             $selectedHistoryItem = $selectedItem.Value
-            $curlCommand = Generate-CodeSnippet -RequestItem $selectedHistoryItem -Language "cURL"
+            $curlCommand = New-CodeSnippet -RequestItem $selectedHistoryItem -Language "cURL"
             [System.Windows.Forms.Clipboard]::SetText($curlCommand) # Copy to clipboard
             Write-Log "Copied history item as cURL command to clipboard."
         }
@@ -5309,7 +5011,7 @@ function Invoke-RequestExecution {
         $selectedItem = $listHistory.SelectedItem
         if ($selectedItem) {
             $selectedHistoryItem = $selectedItem.Value
-            $psCommand = Generate-CodeSnippet -RequestItem $selectedHistoryItem -Language "PowerShell"
+            $psCommand = New-CodeSnippet -RequestItem $selectedHistoryItem -Language "PowerShell"
             [System.Windows.Forms.Clipboard]::SetText($psCommand)
             Write-Log "Copied history item as PowerShell command to clipboard."
         }
@@ -5318,7 +5020,7 @@ function Invoke-RequestExecution {
         $selectedItem = $listHistory.SelectedItem
         if ($selectedItem) {
             $selectedHistoryItem = $selectedItem.Value
-            $pyCommand = Generate-CodeSnippet -RequestItem $selectedHistoryItem -Language "Python"
+            $pyCommand = New-CodeSnippet -RequestItem $selectedHistoryItem -Language "Python"
             [System.Windows.Forms.Clipboard]::SetText($pyCommand)
             Write-Log "Copied history item as Python snippet to clipboard."
         }
@@ -5327,7 +5029,7 @@ function Invoke-RequestExecution {
         $selectedItem = $listHistory.SelectedItem
         if ($selectedItem) {
             $selectedHistoryItem = $selectedItem.Value
-            $csCommand = Generate-CodeSnippet -RequestItem $selectedHistoryItem -Language "C#"
+            $csCommand = New-CodeSnippet -RequestItem $selectedHistoryItem -Language "C#"
             [System.Windows.Forms.Clipboard]::SetText($csCommand)
             Write-Log "Copied history item as C# snippet to clipboard."
         }
@@ -5363,7 +5065,7 @@ function Invoke-RequestExecution {
     })
 
     # Central function to load a request object into the UI fields
-    function Load-Request-From-Object {
+    function Import-RequestFromObject {
         param(
             # Accept the named parameter used elsewhere (-RequestObject) and positional calls.
             [AllowNull()]
@@ -5374,7 +5076,7 @@ function Invoke-RequestExecution {
         # If caller used the old variable name internally, normalize to $selectedHistoryItem for the rest of the function.
         $selectedHistoryItem = $RequestObject
         if (-not $selectedHistoryItem) {
-            Write-Log "Load-Request-From-Object was called without request data." -Level Debug
+            Write-Log "Import-RequestFromObject was called without request data." -Level Debug
             return
         }
 
@@ -5452,7 +5154,7 @@ function Invoke-RequestExecution {
         $checkIncludeContentType.Checked = $script:settings.IncludeContentType
         # After loading the body and setting the checkboxes, re-apply the attributes
         # to ensure the file lines are correctly formatted for the current settings.
-        Apply-Attributes-To-AllFileLines
+        Set-AttributesToAllFileLines
 
         # Update Code Snippet
         $currentUiRequest = [PSCustomObject]@{
@@ -5463,7 +5165,7 @@ function Invoke-RequestExecution {
             BodyType = $script:comboBodyType.SelectedItem
         }
         $script:lastRequestState = $currentUiRequest
-        $richTextCode.Text = Generate-CodeSnippet -RequestItem $currentUiRequest -Language $script:comboCodeLanguage.SelectedItem
+        $richTextCode.Text = New-CodeSnippet -RequestItem $currentUiRequest -Language $script:comboCodeLanguage.SelectedItem
     }
 
     $script:comboBodyType.Add_SelectedIndexChanged({
@@ -5472,10 +5174,10 @@ function Invoke-RequestExecution {
     })
 
     if ($script:settings.EnableHistory) {
-        Load-History
+        Import-History
     }    
-    Populate-HistoryList -TextFilter "" -EnvironmentFilter "All Environments" 
-    Populate-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
+    Update-HistoryListView -TextFilter "" -EnvironmentFilter "All Environments" 
+    Update-CollectionsTreeView -nodes $treeViewCollections.Nodes -items $script:collections
 
     $listHistory.Add_SelectedIndexChanged({
         # This event is intentionally left empty to prevent a race condition with the DoubleClick event.
@@ -5484,12 +5186,12 @@ function Invoke-RequestExecution {
     $checkIncludeFilename.Add_CheckedChanged({
         $script:settings.IncludeFilename = $checkIncludeFilename.Checked
         Save-Settings
-        Apply-Attributes-To-AllFileLines
+        Set-AttributesToAllFileLines
     })
     $checkIncludeContentType.Add_CheckedChanged({
         $script:settings.IncludeContentType = $checkIncludeContentType.Checked
         Save-Settings
-        Apply-Attributes-To-AllFileLines
+        Set-AttributesToAllFileLines
     })
     $listHistory.Add_DoubleClick({
         if ($listHistory.SelectedIndex -ne -1) {
@@ -5503,10 +5205,10 @@ function Invoke-RequestExecution {
             $script:activeCollectionName = $null
             $script:activeCollectionNode = $null
             $script:activeCollectionVariables = @{}
-            Load-Request-From-Object -RequestObject $selectedHistoryItem
+            Import-RequestFromObject -RequestObject $selectedHistoryItem
             Write-Log "Loaded request from history via double-click (URL: $($selectedHistoryItem.Url))"
 
-            # Force the message queue to process all pending UI updates from Load-Request-From-Object
+            # Force the message queue to process all pending UI updates from Import-RequestFromObject
             # before checking the body content for auto-run.
             [System.Windows.Forms.Application]::DoEvents()
             
@@ -5546,10 +5248,10 @@ function Invoke-RequestExecution {
         $statusStrip
     ))
 
-    Populate-EnvironmentDropdown
-    Populate-HistoryEnvironmentFilter
-    Refresh-RequestTabsStrip
-    Apply-RequestStateToUi -RequestState (Get-ActiveRequestTabState)
+    Update-EnvironmentDropdown
+    Update-HistoryEnvironmentFilter
+    Update-RequestTabsStrip
+    Set-RequestStateToUi -RequestState (Get-ActiveRequestTabState)
 
     if ($script:settings.AutoSaveToFile) {
         $script:textOutputFile.Text = $script:settings.AutoSavePath

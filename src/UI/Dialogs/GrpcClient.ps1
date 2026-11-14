@@ -1,6 +1,6 @@
 function Show-GrpcClient {
     param($parentForm)
-    Load-GrpcHistory
+    Import-GrpcHistory
 
     $grpcForm = New-Object System.Windows.Forms.Form -Property @{ Text="gRPC Client (via grpcurl)"; Size=New-Object System.Drawing.Size(1100, 750); StartPosition="CenterParent"; BackColor=$script:Theme.FormBackground }
     

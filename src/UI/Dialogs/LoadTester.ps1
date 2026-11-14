@@ -222,6 +222,7 @@ function Show-LoadTester {
         }
     })
 
+    Set-AppTheme -Form $testerForm
     $testerForm.ShowDialog() | Out-Null
     $testerForm.Dispose()
 }

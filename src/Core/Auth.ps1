@@ -1,4 +1,4 @@
-function Substitute-Variables {
+﻿function Expand-Variables {
     param ([string]$InputString)
     
     $activeEnvVars = $null
@@ -17,6 +17,7 @@ function Substitute-Variables {
         $evaluator = {
             param($match)
             $varName = $match.Groups[1].Value
+            if ($script:iterationVariables -and $script:iterationVariables.ContainsKey($varName)) { return $script:iterationVariables[$varName] }
             if ($activeEnvVars -and $activeEnvVars.ContainsKey($varName)) { return $activeEnvVars[$varName] }
             if ($script:activeCollectionVariables) {
                 if ($script:activeCollectionVariables -is [hashtable] -and $script:activeCollectionVariables.ContainsKey($varName)) { return $script:activeCollectionVariables[$varName] }
@@ -106,7 +107,7 @@ function Send-SmtpOAuth2 {
     } catch { throw $_ }
 }
 
-function Refresh-SmtpToken {
+function Update-SmtpToken {
     if (-not $script:settings.MonitorSmtpRefreshToken -or -not $script:settings.MonitorSmtpTokenEndpoint) { return }
     try {
         Write-Log "Refreshing SMTP OAuth2 Token..." -Level Info

@@ -45,7 +45,8 @@ function Show-LogViewer {
         $parts = @()
         
         # Text Filter #FIX: Corrected text filter
-        $f = $txtFilter.Text
+        # Escape quotes and LIKE wildcards so user text can't break (or inject into) the DataView filter expression.
+        $f = $txtFilter.Text -replace "'", "''" -replace '([\[\]%*])', '[$1]'
         if ($f) { $parts += "(Message LIKE '%$f%' OR Level LIKE '%$f%')" }
         
         # Date Filter
@@ -89,6 +90,7 @@ function Show-LogViewer {
 
     $panel.Controls.AddRange(@($lblSearch, $txtFilter, $lblFrom, $dtpFrom, $lblTo, $dtpTo, $btnExport))
     $logForm.Controls.AddRange(@($grid, $panel))
+    Set-AppTheme -Form $logForm
     $logForm.ShowDialog($parentForm)
 }
 

@@ -69,6 +69,7 @@ function Show-MonitorChartWindow {
 
     $panelTop.Controls.AddRange(@($lblSel, $comboMon, $btnSaveImage))
     $form.Controls.AddRange(@($chart, $panelTop))
+    Set-AppTheme -Form $form
     $form.ShowDialog($parentForm)
 }
 

@@ -1,4 +1,4 @@
-function Show-KeyboardShortcuts {
+function Show-KeyboardShortcutsFallback {
     param([System.Windows.Forms.Form]$parentForm)
 
     $kbForm = New-Object System.Windows.Forms.Form -Property @{
@@ -54,6 +54,50 @@ function Show-KeyboardShortcuts {
     $kbForm.Controls.AddRange(@($layout, $btnClose))
     $kbForm.ShowDialog($parentForm) | Out-Null
     $kbForm.Dispose()
+}
+
+# Shows the Keyboard Shortcuts reference (XAML dialog, WinForms fallback if WPF is unavailable).
+function Show-KeyboardShortcuts {
+    param($parentForm)
+
+    try {
+        $shortcuts = @(
+            @{ Key = "Ctrl + Enter";          Action = "Send Request"        },
+            @{ Key = "Ctrl + F";              Action = "Find in Response"    },
+            @{ Key = "Ctrl + Shift + Enter";  Action = "Run Console Command" },
+            @{ Key = "Alt + F4";              Action = "Close Application"   }
+        )
+        $rowsXaml = ($shortcuts | ForEach-Object {
+            $keyText = [System.Security.SecurityElement]::Escape($_.Key)
+            $actionText = [System.Security.SecurityElement]::Escape($_.Action)
+            "<Grid Margin=`"0,5,0,0`"><Grid.ColumnDefinitions><ColumnDefinition Width=`"170`"/><ColumnDefinition Width=`"*`"/></Grid.ColumnDefinitions><Border Background=`"{StaticResource Soft}`" CornerRadius=`"4`" Padding=`"8,3`" HorizontalAlignment=`"Left`"><TextBlock FontFamily=`"Consolas`" Foreground=`"{StaticResource SoftText}`" Text=`"$keyText`"/></Border><TextBlock Grid.Column=`"1`" VerticalAlignment=`"Center`" Text=`"$actionText`"/></Grid>"
+        }) -join ""
+
+        $xaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Keyboard Shortcuts" Width="440" SizeToContent="Height" ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="CenterScreen" Background="@FORM@" Foreground="@TEXT@" FontFamily="Segoe UI">
+  <Window.Resources><!--APP_RESOURCES--></Window.Resources>
+  <StackPanel Margin="22,18,22,18">
+    <TextBlock Text="Keyboard Shortcuts" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Primary}"/>
+    <Border Margin="0,12,0,0" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="8" Padding="14,10,14,14">
+      <StackPanel>
+        <TextBlock Style="{StaticResource SectionLabel}" Text="SHORTCUT / ACTION"/>
+        @ROWS@
+      </StackPanel>
+    </Border>
+    <Button x:Name="CloseButton" Style="{StaticResource PrimaryButton}" IsDefault="True" IsCancel="True" Width="90" HorizontalAlignment="Right" Margin="0,16,0,0" Content="Close"/>
+  </StackPanel>
+</Window>
+'@
+        $ui = New-WpfWindowFromXaml -Xaml ($xaml.Replace('@ROWS@', $rowsXaml)) -ControlNames 'CloseButton'
+        $window = $ui.Window
+        $ui.Controls['CloseButton'].Add_Click({ $window.Close() })
+        Show-WpfDialog -Window $window -OwnerForm $parentForm | Out-Null
+    } catch {
+        Write-Log "WPF shortcuts dialog failed, using WinForms fallback: $($_.Exception.Message)" -Level Info
+        Show-KeyboardShortcutsFallback -parentForm $(if ($parentForm -is [System.Windows.Forms.Form]) { $parentForm } else { $null })
+    }
 }
 
 # Shows a styled About dialog with version info, author, GitHub link, and in-app updater.

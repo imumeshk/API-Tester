@@ -1,4 +1,4 @@
-function Assert-Equal {
+﻿function Assert-Equal {
     param($Value, $Expected, $Message)
     if ($Value -eq $Expected) {
         $script:testResults.Add([PSCustomObject]@{ Status = 'PASS'; Message = "Value '$Value' equals expected '$Expected'." }) | Out-Null
@@ -49,4 +49,10 @@ function Invoke-RunTests {
         else { $out.AppendLine("UNKNOWN: $l") }
     }
     return $out.ToString()
+}
+
+function Assert-True {
+    param([bool]$Condition, [string]$Message = 'Condition is true')
+    $status = if ($Condition) { 'PASS' } else { 'FAIL' }
+    $script:testResults.Add([PSCustomObject]@{ Status = $status; Message = $Message }) | Out-Null
 }

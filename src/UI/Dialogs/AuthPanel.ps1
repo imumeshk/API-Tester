@@ -162,6 +162,7 @@ function New-AuthPanel {
             }
         })
         $wb.Navigate($authUrl)
+        Set-AppTheme -Form $browserForm
         $browserForm.ShowDialog()
     }
 

@@ -232,25 +232,25 @@ function Format-RedlineAsRtf {
     $rtfBuilder.Append('{\colortbl;\red0\green0\blue0;\red255\green0\blue0;\red0\green0\blue255;}') | Out-Null
 
     # Helper function to recursively process content nodes
-    function Process-Node {
+    function Convert-RedlineNode {
         param($node)
 
         switch ($node._type) {
             "section" {
-                foreach ($child in $node.content) { Process-Node -node $child }
+                foreach ($child in $node.content) { Convert-RedlineNode -node $child }
             }
             "paragraph" {
                 if ($node.isdeleted) {
                     # Skip rendering deleted paragraphs entirely for clarity
                 } else {
-                    foreach ($child in $node.content) { Process-Node -node $child }
+                    foreach ($child in $node.content) { Convert-RedlineNode -node $child }
                     $script:rtfBuilder.Append('\par ') | Out-Null # End of paragraph
                 }
             }
             "change" {
                 if ($node.type -eq "deletion") {
                     $script:rtfBuilder.Append('\cf2\strike ') | Out-Null # Red, strikethrough
-                    foreach ($child in $node.content) { Process-Node -node $child }
+                    foreach ($child in $node.content) { Convert-RedlineNode -node $child }
                     $script:rtfBuilder.Append('\strike0\cf1 ') | Out-Null # Reset format
                 }
                 # Note: Insertions are handled by their text content having a different color/decoration
@@ -268,7 +268,7 @@ function Format-RedlineAsRtf {
 
     # Set the builder in a script scope so the helper function can access it
     $script:rtfBuilder = $rtfBuilder
-    Process-Node -node $RedlineJson
+    Convert-RedlineNode -node $RedlineJson
     $script:rtfBuilder = $null # Clean up
 
     $rtfBuilder.Append('}') | Out-Null

@@ -34,12 +34,12 @@ function Show-JwtTool {
         if ($token -match '^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$') {
             $parts = $token.Split('.')
             try {
-                function FromB64Url($s) { 
+                function ConvertFrom-Base64Url($s) { 
                     $s=$s.Replace('-','+').Replace('_','/'); switch($s.Length%4){2{$s+='=='}3{$s+='='}}; 
                     [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($s)) 
                 }
-                $header = FromB64Url $parts[0] | ConvertFrom-Json | ConvertTo-Json
-                $payload = FromB64Url $parts[1] | ConvertFrom-Json | ConvertTo-Json
+                $header = ConvertFrom-Base64Url $parts[0] | ConvertFrom-Json | ConvertTo-Json
+                $payload = ConvertFrom-Base64Url $parts[1] | ConvertFrom-Json | ConvertTo-Json
                 $txtJwtOutput.Text = "HEADER:`n$header`n`nPAYLOAD:`n$payload`n`nSIGNATURE:`n$($parts[2])"
             } catch { $txtJwtOutput.Text = "Error decoding JWT: $($_.Exception.Message)" }
         } else { $txtJwtOutput.Text = "Invalid JWT format." }

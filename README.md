@@ -1,11 +1,17 @@
-# 🧪 PowerShell API Tester (V2)
+﻿# 🧪 PowerShell API Tester (V3)
 
 > A native, GUI-based API testing & monitoring tool built entirely in PowerShell — no Electron, no Node.js, no dependencies.
 
-[![Version](https://img.shields.io/badge/V2-2.0.0-blue?style=flat-square)](https://github.com/imumeshk/API-Tester/)
+[![Version](https://img.shields.io/github/v/release/imumeshk/API-Tester?style=flat-square)](https://github.com/imumeshk/API-Tester/releases/latest)
+[![Build](https://github.com/imumeshk/API-Tester/actions/workflows/build.yml/badge.svg)](https://github.com/imumeshk/API-Tester/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-PowerShell API Tester is a fully-featured, ultra-lightweight alternative to Postman/Insomnia. It runs entirely inside standard Windows PowerShell and utilizes `System.Windows.Forms` to render a native GUI.
+PowerShell API Tester is a fully-featured, ultra-lightweight alternative to Postman/Insomnia. It runs entirely inside standard Windows PowerShell (5.1 or 7) with a native WPF interface - the previous WinForms window is still available with `-ClassicUi`.
+
+## ✨ What's new in V3
+New interface with instant Light/Dark themes, syntax highlighting and variable hover, a Params tab, test snippets, folder/collection inheritance, Postman/Insomnia/HAR import and Postman export, history with saved responses, parallel runs with retries and HTML reports, background monitors with a status tray icon, a live browser dashboard, Teams/Slack/webhook alerts, secret variables and a built-in updater. See [docs/releases/v3.0.0.md](docs/releases/v3.0.0.md) and [CHANGELOG.md](CHANGELOG.md).
+
+📖 **New to API Tester? Read the [User Guide](docs/USER_GUIDE.md)** - installation, every feature, shortcuts and troubleshooting.
 
 ## 🚀 Features (V2 Update)
 Version 2 is a massive architectural overhaul that brings enterprise-grade API testing capabilities natively to Windows.
@@ -65,6 +71,19 @@ API-Tester is distributed as a single `.ps1` file, but developed modularly.
    ```
 
 ---
+
+### Launch options
+Full instructions: [User Guide](docs/USER_GUIDE.md).
+
+- `.\dist\API-Tester.ps1` - opens the WPF interface (default).
+- `.\dist\API-Tester.ps1 -ClassicUi` - opens the previous WinForms interface.
+- `.\dist\API-Tester.ps1 -RunMonitors` - runs the monitors in the background (tray icon only).
+- `.\dist\API-Tester.ps1 -Headless -RunCollection "My APIs" [-Environment "Dev"] [-DataFile data.csv] [-OutputFormat Console|Json|JUnit|Html] [-Retries 2]` - CI mode; exit code 1 when any request fails.
+
+### Updating
+- In the app: **Help -> About API Tester -> Check for updates** (the app also checks once a day at start-up).
+- Or download `API-Tester.ps1` from the [latest release](https://github.com/imumeshk/API-Tester/releases/latest) and replace your copy - keep the `Configuration`, `History` and `Logs` folders next to it.
+- Publishing a release: `.\tools\Release.ps1 Publish -Bump Patch` - see [docs/RELEASING.md](docs/RELEASING.md).
 
 ## ⚙️ Configuration & Data
 All your collections, environments, and settings are saved automatically next to the script at runtime:

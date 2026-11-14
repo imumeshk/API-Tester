@@ -15,7 +15,7 @@ function Show-MonitorManager {
     $listMonitors.Columns.Add("Status", 80) | Out-Null
     $listMonitors.Columns.Add("Last Run", 120) | Out-Null
 
-    function Refresh-List {
+    function Update-MonitorList {
         $listMonitors.Items.Clear()
         foreach ($m in $script:monitors) {
             $item = New-Object System.Windows.Forms.ListViewItem($m.Name)
@@ -28,7 +28,7 @@ function Show-MonitorManager {
             $listMonitors.Items.Add($item) | Out-Null
         }
     }
-    Refresh-List
+    Update-MonitorList
 
     $panelBtn = New-Object System.Windows.Forms.TableLayoutPanel -Property @{ Dock = 'Bottom'; AutoSize = $true; ColumnCount = 3; Padding = [System.Windows.Forms.Padding]::new(0, 5, 0, 5) }
     $panelBtn.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50))) | Out-Null
@@ -49,7 +49,7 @@ function Show-MonitorManager {
         if ((Show-MonitorEditor -Monitor $newMonitor) -eq [System.Windows.Forms.DialogResult]::OK) {
             $script:monitors += $newMonitor
             Save-Monitors
-            Refresh-List
+            Update-MonitorList
         }
     }
 
@@ -69,7 +69,7 @@ function Show-MonitorManager {
                 }
                 if ($originalMonitorIndex -ne -1) { $script:monitors[$originalMonitorIndex] = $monitorToEdit }
                 Save-Monitors # Save the entire updated array
-                Refresh-List
+                Update-MonitorList
             }
         } else {
             [System.Windows.Forms.MessageBox]::Show("Please select a monitor to edit.", "Selection Required", "OK", "Warning")
@@ -81,7 +81,7 @@ function Show-MonitorManager {
             $m = $listMonitors.SelectedItems[0].Tag
             if ($m.Status -eq "Running") { $m.Status = "Stopped" } else { $m.Status = "Running"; $m.LastRun = $null }
             Save-Monitors
-            Refresh-List
+            Update-MonitorList
         } else {
             [System.Windows.Forms.MessageBox]::Show("Please select a monitor to start or stop.", "Selection Required", "OK", "Warning")
         }
@@ -100,7 +100,7 @@ function Show-MonitorManager {
                 }
                 $script:monitors = @($script:monitors | Where-Object { $_.Id -ne $m.Id })
                 Save-Monitors
-                Refresh-List
+                Update-MonitorList
             }
         } else {
             [System.Windows.Forms.MessageBox]::Show("Please select a monitor to delete.", "Selection Required", "OK", "Warning")
@@ -146,6 +146,7 @@ function Show-MonitorManager {
     $buttonsFlow.Controls.AddRange(@($btnCharts, $btnOpenLog, $btnAdd, $btnEdit, $btnToggle, $btnDelete, $btnEmailConfig, $btnClearLog, $btnArchiveLog))
     $panelBtn.Controls.Add($buttonsFlow, 1, 0)
     $monitorForm.Controls.AddRange(@($listMonitors, $panelBtn))
+    Set-AppTheme -Form $monitorForm
     $monitorForm.ShowDialog($parentForm)
 }
 

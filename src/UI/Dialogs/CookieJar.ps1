@@ -10,7 +10,7 @@ function Show-CookieJar {
     $grid.Columns.Add("Path", "Path") | Out-Null
     $grid.Columns.Add("Expires", "Expires") | Out-Null
 
-    function Refresh-Grid {
+    function Update-CookieGrid {
         $grid.Rows.Clear()
         if ($script:cookieJar) {
             foreach ($cookie in $script:cookieJar) {
@@ -18,13 +18,13 @@ function Show-CookieJar {
             }
         }
     }
-    Refresh-Grid
+    Update-CookieGrid
 
     $panelBtn = New-Object System.Windows.Forms.FlowLayoutPanel -Property @{ Dock='Bottom'; AutoSize=$true; FlowDirection='RightToLeft'; Padding=[System.Windows.Forms.Padding]::new(5) }
     $btnClose = New-Button -Text "Close" -Style 'Secondary' -Property @{ Width=80; Height=30 } -OnClick { $form.Close() }
     $btnClear = New-Button -Text "Clear All" -Style 'Danger' -Property @{ Width=100; Height=30; Margin=[System.Windows.Forms.Padding]::new(0,0,5,0) } -OnClick {
         if ($script:cookieJar) { $script:cookieJar.Clear() }
-        Refresh-Grid
+        Update-CookieGrid
     }
     $panelBtn.Controls.AddRange(@($btnClose, $btnClear))
 
@@ -64,7 +64,7 @@ function Show-CookieJar {
                             [void]$script:cookieJar.Add($cookie)
                         } catch {}
                     }
-                    Refresh-Grid
+                    Update-CookieGrid
                     [System.Windows.Forms.MessageBox]::Show("Cookies imported successfully.", "Success", "OK", "Information")
                 }
             } catch {

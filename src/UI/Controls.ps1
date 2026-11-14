@@ -1,3 +1,15 @@
+# Remembers each button's style (Primary/Secondary/Danger) so Set-AppTheme can re-apply it. Tag is not used
+# because several callers store their own data in Button.Tag.
+$script:ButtonStyleTable = New-Object 'System.Runtime.CompilerServices.ConditionalWeakTable[System.Object,System.Object]'
+
+function Get-ButtonStyleName {
+    param([System.Windows.Forms.Control]$Control)
+    if ($Control.Tag -is [string] -and $Control.Tag -in @('Primary', 'Danger', 'Secondary')) { return $Control.Tag }
+    $styleName = $null
+    if ($script:ButtonStyleTable.TryGetValue($Control, [ref]$styleName)) { return [string]$styleName }
+    return 'Secondary'
+}
+
 function New-Label {
     param (
         [string]$Text,
@@ -77,6 +89,8 @@ function New-Button {
             try { $button.$p = $Property[$p] } catch { }
         }
     }
+    [void]$script:ButtonStyleTable.Remove($button)
+    $script:ButtonStyleTable.Add($button, $Style)
     $button.Add_Click($OnClick)
     return $button
 }
