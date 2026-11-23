@@ -20,3 +20,7 @@ grpcurl.exe
 
 # Internal documents (code audit, enhancement ideas, updater notes, naming conventions) - local only
 docs/internal/
+
+# Release tool and its guide - kept locally, never pushed
+tools/Release.ps1
+
