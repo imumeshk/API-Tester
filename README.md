@@ -8,6 +8,16 @@
 
 PowerShell API Tester is a fully-featured, ultra-lightweight alternative to Postman/Insomnia. It runs entirely inside standard Windows PowerShell (5.1 or 7) with a native WPF interface - the previous WinForms window is still available with `-ClassicUi`.
 
+## ✨ What's new in 3.1.0 - 2026-11-23
+
+### Added
+Theme button, custom keyboard shortcuts, response toolbar, faster start-up. See for full changes, and fixes [CHANGELOG.md](https://github.com/imumeshk/API-Tester/blob/main/CHANGELOG.md)
+
+### Fixed
+- Switching the theme froze the window and only took effect after restarting the app.
+- The first window took long to appear (C# compiled at every start, large history file).
+
+
 ## ✨ What's new in V3
 New interface with instant Light/Dark themes, syntax highlighting and variable hover, a Params tab, test snippets, folder/collection inheritance, Postman/Insomnia/HAR import and Postman export, history with saved responses, parallel runs with retries and HTML reports, background monitors with a status tray icon, a live browser dashboard, Teams/Slack/webhook alerts, secret variables and a built-in updater. See [docs/releases/v3.0.0.md](docs/releases/v3.0.0.md) and [CHANGELOG.md](CHANGELOG.md).
 
