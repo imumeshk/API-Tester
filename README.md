@@ -1,4 +1,4 @@
-﻿# 🧪 PowerShell API Tester (V3)
+﻿# 🧪 PowerShell API Tester (V3.1.0)
 
 > A native, GUI-based API testing & monitoring tool built entirely in PowerShell — no Electron, no Node.js, no dependencies.
 
