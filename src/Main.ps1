@@ -113,7 +113,11 @@ try {
     } else {
         Write-Log "Starting PowerShell API Tester v$($script:AppVersion)..."
         if ($RunMonitors) { Invoke-MonitorService }
-        elseif ($ClassicUi) { New-ApiForm } else { Show-MainWindow }
+        elseif ($ClassicUi) { New-ApiForm }
+        else {
+            # The window is shown again when it asked to be rebuilt (theme change that could not be applied in place).
+            do { $script:reopenMainWindow = $false; Show-MainWindow } while ($script:reopenMainWindow)
+        }
     }
 } catch {
     $fatalDetails = "$($_.Exception.Message)`r`n`r`n$($_.InvocationInfo.PositionMessage)`r`n`r`n$($_.ScriptStackTrace)"

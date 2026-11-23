@@ -1,11 +1,20 @@
 ﻿#region XAML network dialogs (WebSocket, gRPC, Load tester)
 
+# Status colours that stay readable on both themes: the dark theme uses lighter shades of the same colours.
+function ConvertTo-ThemeColor {
+    param([string]$Color)
+    if ($script:settings.AppTheme -ne 'Dark') { return $Color }
+    $lighter = @{ '#15803D' = '#4ADE80'; '#2563EB' = '#60A5FA'; '#B91C1C' = '#F87171'; '#B45309' = '#FBBF24'; '#D93025' = '#F87171'; '#107C10' = '#4ADE80' }
+    if ($lighter.ContainsKey($Color.ToUpperInvariant())) { return $lighter[$Color.ToUpperInvariant()] }
+    return $Color
+}
+
 function Add-RichTextLine {
     param($Box, [string]$Text, [string]$Color = '')
     $paragraph = New-Object System.Windows.Documents.Paragraph
     $paragraph.Margin = [System.Windows.Thickness]::new(0)
     $run = New-Object System.Windows.Documents.Run($Text)
-    if ($Color) { $run.Foreground = ConvertTo-WpfBrush $Color }
+    if ($Color) { $run.Foreground = ConvertTo-WpfBrush (ConvertTo-ThemeColor $Color) }
     [void]$paragraph.Inlines.Add($run)
     [void]$Box.Document.Blocks.Add($paragraph)
     $Box.ScrollToEnd()
@@ -22,23 +31,31 @@ function Get-RichTextContent {
 
 function Show-WebSocketDialog {
     $body = @'
-  <Grid Margin="16,14,16,14">
-    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <WrapPanel Margin="0,0,0,8">
-      <TextBlock Text="URL" VerticalAlignment="Center" Margin="0,0,8,0"/>
-      <TextBox x:Name="WsUrlBox" Width="340" Height="28" VerticalContentAlignment="Center" Text="wss://echo.websocket.org" Margin="0,0,8,0"/>
-      <Button x:Name="ConnectButton" Style="{StaticResource PrimaryButton}" Padding="14,5" Margin="0,0,6,0" Content="Connect"/>
-      <Button x:Name="DisconnectButton" Padding="14,5" Margin="0,0,14,0" Content="Disconnect" IsEnabled="False"/>
-      <Button x:Name="SaveLogButton" Style="{StaticResource SmallButton}" Content="Save log"/>
-      <Button x:Name="LoadLogButton" Style="{StaticResource SmallButton}" Content="Load log"/>
-      <Button x:Name="ClearLogButton" Style="{StaticResource SmallButton}" Content="Clear log"/>
-      <TextBlock x:Name="WsStatusText" VerticalAlignment="Center" Margin="8,0,0,0" Text="Status: Disconnected" Foreground="#B91C1C"/>
-    </WrapPanel>
-    <RichTextBox x:Name="WsLogBox" Grid.Row="1" IsReadOnly="True" FontFamily="Consolas" FontSize="12" VerticalScrollBarVisibility="Auto"/>
-    <DockPanel Grid.Row="2" Margin="0,8,0,0">
-      <Button x:Name="SendButton" DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Width="90" Margin="8,0,0,0" Content="Send" IsEnabled="False"/>
-      <TextBox x:Name="WsMessageBox" Height="30" VerticalContentAlignment="Center"/>
+  <Grid Margin="18,16,18,16">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid>
+      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <TextBlock Text="URL" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,0"/>
+      <TextBox x:Name="WsUrlBox" Grid.Column="1" Height="34" VerticalContentAlignment="Center" Text="wss://echo.websocket.org"/>
+      <Button x:Name="ConnectButton" Grid.Column="2" Style="{StaticResource PrimaryButton}" Width="112" Height="34" Margin="10,0,0,0" Content="Connect"/>
+      <Button x:Name="DisconnectButton" Grid.Column="3" Width="112" Height="34" Margin="8,0,0,0" Content="Disconnect" IsEnabled="False"/>
+    </Grid>
+    <DockPanel Grid.Row="1" Margin="0,12,0,8">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button x:Name="SaveLogButton" Width="100" Height="30" Margin="0,0,6,0" Content="Save log"/>
+        <Button x:Name="LoadLogButton" Width="100" Height="30" Margin="0,0,6,0" Content="Load log"/>
+        <Button x:Name="ClearLogButton" Width="100" Height="30" Content="Clear log"/>
+      </StackPanel>
+      <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="13" Padding="12,4" HorizontalAlignment="Left" VerticalAlignment="Center">
+        <TextBlock x:Name="WsStatusText" FontWeight="SemiBold" Text="&#x25CF; Disconnected"/>
+      </Border>
     </DockPanel>
+    <RichTextBox x:Name="WsLogBox" Grid.Row="2" IsReadOnly="True" FontFamily="Consolas" FontSize="12" VerticalScrollBarVisibility="Auto"/>
+    <Grid Grid.Row="3" Margin="0,10,0,0">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <TextBox x:Name="WsMessageBox" Height="34" VerticalContentAlignment="Center" ToolTip="Message to send - Enter sends"/>
+      <Button x:Name="SendButton" Grid.Column="1" Style="{StaticResource PrimaryButton}" Width="112" Height="34" Margin="10,0,0,0" Content="Send" IsEnabled="False"/>
+    </Grid>
   </Grid>
 '@
     $names = 'WsUrlBox', 'ConnectButton', 'DisconnectButton', 'SaveLogButton', 'LoadLogButton', 'ClearLogButton', 'WsStatusText', 'WsLogBox', 'SendButton', 'WsMessageBox'
@@ -54,8 +71,8 @@ function Show-WebSocketDialog {
     $setConnected = {
         param([bool]$Connected)
         $controls['ConnectButton'].IsEnabled = -not $Connected; $controls['DisconnectButton'].IsEnabled = $Connected; $controls['SendButton'].IsEnabled = $Connected
-        $controls['WsStatusText'].Text = if ($Connected) { 'Status: Connected' } else { 'Status: Disconnected' }
-        $controls['WsStatusText'].Foreground = if ($Connected) { [System.Windows.Media.Brushes]::SeaGreen } else { [System.Windows.Media.Brushes]::Firebrick }
+        $controls['WsStatusText'].Text = if ($Connected) { "$([char]0x25CF) Connected" } else { "$([char]0x25CF) Disconnected" }
+        $controls['WsStatusText'].Foreground = ConvertTo-WpfBrush (ConvertTo-ThemeColor $(if ($Connected) { '#15803D' } else { '#B91C1C' }))
     }
     $disconnect = {
         try { if ($script:ws.State -eq 'Open') { [void]$script:ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'User disconnect', [System.Threading.CancellationToken]::None) } } catch { }
@@ -101,7 +118,7 @@ function Show-WebSocketDialog {
         try {
             if ($script:ws.State -ne 'None') { $script:ws.Dispose(); $script:ws = New-Object System.Net.WebSockets.ClientWebSocket }
             $script:wsConnectTask = $script:ws.ConnectAsync((New-Object System.Uri($controls['WsUrlBox'].Text)), [System.Threading.CancellationToken]::None)
-            $controls['WsStatusText'].Text = 'Status: Connecting...'; $controls['WsStatusText'].Foreground = [System.Windows.Media.Brushes]::DarkOrange
+            $controls['WsStatusText'].Text = "$([char]0x25CF) Connecting..."; $controls['WsStatusText'].Foreground = ConvertTo-WpfBrush (ConvertTo-ThemeColor '#B45309')
             $controls['ConnectButton'].IsEnabled = $false
         } catch { Add-RichTextLine -Box $controls['WsLogBox'] -Text "Error connecting: $($_.Exception.Message)" -Color '#B91C1C'; $controls['ConnectButton'].IsEnabled = $true }
     })

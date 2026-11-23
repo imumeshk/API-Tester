@@ -32,13 +32,34 @@ function Get-CodeLanguage {
     return 'text'
 }
 
+# Shared brush per token kind. A theme change recolours these brushes, so highlighted text never has to be redone.
+function Update-SyntaxPalette {
+    $palette = Get-SyntaxPalette
+    if ($script:fastHighlighter) { [ApiTesterHighlighter]::SetPalette($palette); return }
+    if (-not $script:syntaxBrushes) { $script:syntaxBrushes = @{} }
+    foreach ($kind in $palette.Keys) {
+        $color = [System.Windows.Media.ColorConverter]::ConvertFromString($palette[$kind])
+        if ($script:syntaxBrushes.ContainsKey($kind)) { $script:syntaxBrushes[$kind].Color = $color }
+        else { $script:syntaxBrushes[$kind] = New-Object System.Windows.Media.SolidColorBrush $color }
+    }
+}
+
+function Initialize-SyntaxHighlighter {
+    if ($script:syntaxHighlighterReady) { return }
+    if ($script:fastHighlighter) { foreach ($language in $script:syntaxPatterns.Keys) { [ApiTesterHighlighter]::SetPattern($language, $script:syntaxPatterns[$language]) } }
+    Update-SyntaxPalette
+    $script:syntaxHighlighterReady = $true
+}
+
 function Update-CodeHighlight {
     param([string]$Name)
     $editor = $script:codeEditors[$Name]
     if (-not $editor) { return }
+    Initialize-SyntaxHighlighter
     $box = $editor.Box; $highlight = $editor.Highlight
     $text = [string]$box.Text
-    $limit = 300000
+    # The compiled highlighter handles large responses quickly; the PowerShell fallback stops earlier to stay responsive.
+    $limit = if ($script:fastHighlighter) { 400000 } else { 60000 }
     $editor.Variables = @()
     if ($text.Length -gt $limit -or $editor.Disabled) {
         $highlight.Inlines.Clear(); $highlight.Text = ''
@@ -48,10 +69,15 @@ function Update-CodeHighlight {
     }
     $box.Foreground = [System.Windows.Media.Brushes]::Transparent
     $language = Get-CodeLanguage -Text $text -Hint $(if ($editor.LanguageHint) { & $editor.LanguageHint } else { '' })
-    $palette = Get-SyntaxPalette
-    $brushes = @{}
-    foreach ($kind in $palette.Keys) { $brushes[$kind] = ConvertTo-WpfBrush $palette[$kind] }
+    if ($script:fastHighlighter) {
+        $editor.Variables = [ApiTesterHighlighter]::Apply($highlight, $text, $language, [string[]]@(Get-KnownVariableNames))
+        Update-CodeLineNumbers -Name $Name
+        return
+    }
+    $known = @{}
+    foreach ($variableName in @(Get-KnownVariableNames)) { $known[$variableName] = $true }
     $highlight.Inlines.Clear()
+    $variables = New-Object System.Collections.Generic.List[object]
     $position = 0
     foreach ($match in [regex]::Matches($text, $script:syntaxPatterns[$language])) {
         if ($match.Index -gt $position) { [void]$highlight.Inlines.Add((New-Object System.Windows.Documents.Run($text.Substring($position, $match.Index - $position)))) }
@@ -60,17 +86,16 @@ function Update-CodeHighlight {
         $run = New-Object System.Windows.Documents.Run($match.Value)
         if ($kind -eq 'variable') {
             $variableName = $match.Value.Substring(2, $match.Value.Length - 4).Trim()
-            $source = Resolve-VariableSource -Name $variableName
-            $run.Foreground = if ($source.Found) { $brushes['variable'] } else { $brushes['missing'] }
+            $run.Foreground = $script:syntaxBrushes[$(if ($known.ContainsKey($variableName)) { 'variable' } else { 'missing' })]
             $run.FontWeight = [System.Windows.FontWeights]::SemiBold
-            $editor.Variables += @{ Start = $match.Index; End = $match.Index + $match.Length; Name = $variableName }
-        } else { $run.Foreground = $brushes[$kind] }
+            $variables.Add(@{ Start = $match.Index; End = $match.Index + $match.Length; Name = $variableName })
+        } else { $run.Foreground = $script:syntaxBrushes[$kind] }
         [void]$highlight.Inlines.Add($run)
         $position = $match.Index + $match.Length
     }
     if ($position -lt $text.Length) { [void]$highlight.Inlines.Add((New-Object System.Windows.Documents.Run($text.Substring($position)))) }
-    # A trailing newline needs an extra line so the overlay keeps the same height as the TextBox.
     if ($text.EndsWith("`n")) { [void]$highlight.Inlines.Add((New-Object System.Windows.Documents.Run(' '))) }
+    $editor.Variables = $variables
     Update-CodeLineNumbers -Name $Name
 }
 
@@ -132,7 +157,11 @@ function Update-VariableToolTip {
     if ([string]$Box.ToolTip -ne $text) { $Box.ToolTip = $text }
 }
 
-function Update-AllCodeHighlights { foreach ($name in @($script:codeEditors.Keys)) { Invoke-UiGuard { Update-CodeHighlight -Name $name } 'Highlight' } }
+# Re-highlights the editors (for example after the environment changed, so known / unknown variables are recoloured).
+function Update-AllCodeHighlights {
+    param([string[]]$Except = @())
+    foreach ($name in @($script:codeEditors.Keys)) { if ($Except -notcontains $name) { Invoke-UiGuard { Update-CodeHighlight -Name $name } 'Highlight' } }
+}
 
 # Scrolls an editor so the given character index is visible (code editors scroll through their outer ScrollViewer).
 function Show-TextBoxIndex {
@@ -338,8 +367,229 @@ function Set-AppThemeLive {
     if (-not $script:Themes.ContainsKey($ThemeName)) { return }
     $script:settings.AppTheme = $ThemeName
     $script:Theme = $script:Themes[$ThemeName]
-    foreach ($window in @($script:openWpfWindows)) { try { Set-WpfThemeResources -Window $window } catch { } }
-    Update-AllCodeHighlights
-    Set-UiStatus "Theme changed to $ThemeName."
+    foreach ($window in @($script:openWpfWindows)) {
+        try { Set-WpfThemeResources -Window $window } catch { Write-Log "Theme could not be applied to '$($window.Title)': $($_.Exception.Message)" -Level Error }
+    }
+    Update-SyntaxPalette
+    Update-ThemeToggleButton
+    $script:themeAppliedLive = Test-ThemeApplied
+    if ($script:themeAppliedLive) { Set-UiStatus "Theme changed to $ThemeName." }
+    else { Write-Log "Theme '$ThemeName' did not reach the main window in place; it will be rebuilt." -Level Info }
+}
+
+# True when the main window really shows the active theme (window background and a primary button).
+function Test-ThemeApplied {
+    $window = Get-MainWindow
+    if (-not $window -or -not $script:ui) { return $true }
+    try {
+        $colors = Get-ThemeBrushColors
+        $form = [System.Windows.Media.ColorConverter]::ConvertFromString($colors.Form)
+        $primary = [System.Windows.Media.ColorConverter]::ConvertFromString($colors.Primary)
+        $background = $window.Background
+        $sendBackground = $script:ui.SendButton.Background
+        return (($background -is [System.Windows.Media.SolidColorBrush]) -and $background.Color -eq $form -and
+                ($sendBackground -is [System.Windows.Media.SolidColorBrush]) -and $sendBackground.Color -eq $primary)
+    } catch { return $false }
+}
+
+# ------------------------------------------------------------------------------------------------
+# Theme switch (header button and shortcut)
+# ------------------------------------------------------------------------------------------------
+
+function Update-ThemeToggleButton {
+    $controls = $script:ui
+    if (-not $controls -or -not $controls.ThemeToggleButton) { return }
+    $isDark = ($script:settings.AppTheme -eq 'Dark')
+    # Sun when dark (click for light), moon when light (click for dark).
+    $controls.ThemeToggleButton.Content = if ($isDark) { [string][char]0x2600 } else { [string][char]0x263E }
+    $controls.ThemeToggleButton.ToolTip = if ($isDark) { 'Switch to the light theme' } else { 'Switch to the dark theme' }
+}
+
+function Switch-AppTheme {
+    $next = if ($script:settings.AppTheme -eq 'Dark') { 'Light' } else { 'Dark' }
+    Set-AppThemeLive -ThemeName $next
+    Save-Settings
+    Complete-ThemeSwitch
+}
+
+# ------------------------------------------------------------------------------------------------
+# Keyboard shortcuts (customisable in Help -> Keyboard Shortcuts..., stored in Settings)
+# ------------------------------------------------------------------------------------------------
+
+$script:ShortcutDefinitions = [ordered]@{
+    Send           = @{ Title = 'Send the request';               Default = 'Ctrl+Enter';       Action = { Invoke-SendRequest } }
+    Cancel         = @{ Title = 'Cancel the running request';     Default = 'Ctrl+Shift+X';     Action = { Stop-SendRequest } }
+    NewTab         = @{ Title = 'New request tab';                Default = 'Ctrl+T';           Action = { [void](Add-RequestTab) } }
+    CloseTab       = @{ Title = 'Close the request tab';          Default = 'Ctrl+W';           Action = { Remove-ActiveRequestTab } }
+    DuplicateTab   = @{ Title = 'Duplicate the request tab';      Default = 'Ctrl+D';           Action = { Copy-ActiveRequestTab } }
+    NextTab        = @{ Title = 'Next request tab';               Default = 'Ctrl+Tab';         Action = { Select-AdjacentRequestTab -Offset 1 } }
+    PreviousTab    = @{ Title = 'Previous request tab';           Default = 'Ctrl+Shift+Tab';   Action = { Select-AdjacentRequestTab -Offset -1 } }
+    SaveRequest    = @{ Title = 'Save the request to a collection'; Default = 'Ctrl+S';         Action = { Save-CurrentRequest } }
+    FocusUrl       = @{ Title = 'Go to the URL box';              Default = 'Ctrl+L';           Action = { [void]$script:ui.UrlBox.Focus(); $script:ui.UrlBox.SelectAll() } }
+    Find           = @{ Title = 'Find in the response';           Default = 'Ctrl+F';           Action = { Show-FindBar } }
+    Beautify       = @{ Title = 'Beautify the body';              Default = 'Ctrl+B';           Action = { Format-BodyEditor } }
+    RunConsole     = @{ Title = 'Run the console command';        Default = 'Ctrl+Shift+Enter'; Action = { $script:ui.ResponseTabs.SelectedItem = $script:ui.TabConsole; Invoke-ConsoleRun } }
+    ToggleTheme    = @{ Title = 'Switch light / dark theme';      Default = 'Ctrl+Shift+D';     Action = { Switch-AppTheme } }
+    Environments   = @{ Title = 'Manage environments';            Default = 'Ctrl+E';           Action = { Show-EnvironmentManager } }
+    ImportCurl     = @{ Title = 'Import a cURL command';          Default = 'Ctrl+I';           Action = { Invoke-MenuImportCurl } }
+    MonitorManager = @{ Title = 'Monitor manager';                Default = 'Ctrl+M';           Action = { Show-MonitorManagerWindow } }
+    Settings       = @{ Title = 'Settings';                       Default = 'Ctrl+Shift+O';     Action = { Invoke-MenuSettings } }
+    Shortcuts      = @{ Title = 'Keyboard shortcuts';             Default = 'F1';               Action = { Show-ShortcutEditorDialog } }
+}
+
+# Shortcuts the text boxes need; they cannot be assigned.
+$script:ReservedShortcuts = @('Ctrl+A', 'Ctrl+C', 'Ctrl+V', 'Ctrl+X', 'Ctrl+Z', 'Ctrl+Y', 'Alt+F4')
+
+$script:ShortcutKeyNames = @{ 'Return' = 'Enter'; 'Escape' = 'Esc'; 'Back' = 'Backspace'; 'Next' = 'PageDown'; 'Prior' = 'PageUp'; 'OemComma' = ','; 'OemPeriod' = '.'; 'OemMinus' = '-'; 'OemPlus' = '='; 'Oem2' = '/'; 'OemQuestion' = '/' }
+
+function Format-Shortcut {
+    param([System.Windows.Input.Key]$Key, [System.Windows.Input.ModifierKeys]$Modifiers)
+    $parts = New-Object System.Collections.Generic.List[string]
+    if ($Modifiers -band [System.Windows.Input.ModifierKeys]::Control) { $parts.Add('Ctrl') }
+    if ($Modifiers -band [System.Windows.Input.ModifierKeys]::Shift) { $parts.Add('Shift') }
+    if ($Modifiers -band [System.Windows.Input.ModifierKeys]::Alt) { $parts.Add('Alt') }
+    $name = [string]$Key
+    if ($script:ShortcutKeyNames.ContainsKey($name)) { $name = $script:ShortcutKeyNames[$name] }
+    elseif ($name -match '^D(\d)$') { $name = $Matches[1] }
+    elseif ($name -match '^NumPad(\d)$') { $name = "Num$($Matches[1])" }
+    $parts.Add($name)
+    return ($parts -join '+')
+}
+
+function Get-ShortcutBindings {
+    $custom = Get-ObjectProperty $script:settings 'KeyboardShortcuts' $null
+    $bindings = [ordered]@{}
+    foreach ($id in $script:ShortcutDefinitions.Keys) {
+        $value = $script:ShortcutDefinitions[$id].Default
+        if ($custom) {
+            $hasCustom = if ($custom -is [System.Collections.IDictionary]) { $custom.Contains($id) } else { [bool]$custom.PSObject.Properties[$id] }
+            if ($hasCustom) { $value = [string](Get-ObjectProperty $custom $id '') }
+        }
+        $bindings[$id] = $value
+    }
+    return $bindings
+}
+
+function Update-ShortcutLookup {
+    $script:shortcutLookup = @{}
+    $bindings = Get-ShortcutBindings
+    foreach ($id in $bindings.Keys) { if ($bindings[$id]) { $script:shortcutLookup[$bindings[$id].ToLowerInvariant()] = $id } }
+}
+
+# Window-level key handling: runs the action bound to the pressed combination.
+function Invoke-ShortcutKey {
+    param($KeyArgs)
+    if (-not $script:shortcutLookup) { Update-ShortcutLookup }
+    $key = if ($KeyArgs.Key -eq [System.Windows.Input.Key]::System) { $KeyArgs.SystemKey } else { $KeyArgs.Key }
+    if ($key -in @([System.Windows.Input.Key]::LeftCtrl, [System.Windows.Input.Key]::RightCtrl, [System.Windows.Input.Key]::LeftShift, [System.Windows.Input.Key]::RightShift,
+                   [System.Windows.Input.Key]::LeftAlt, [System.Windows.Input.Key]::RightAlt, [System.Windows.Input.Key]::LWin, [System.Windows.Input.Key]::RWin)) { return }
+    $gesture = (Format-Shortcut -Key $key -Modifiers ([System.Windows.Input.Keyboard]::Modifiers)).ToLowerInvariant()
+    if (-not $script:shortcutLookup.ContainsKey($gesture)) { return }
+    $id = $script:shortcutLookup[$gesture]
+    # The console input runs its own command on Ctrl+Enter.
+    if ($id -eq 'Send' -and $KeyArgs.OriginalSource -eq $script:ui.ConsoleInputBox) { return }
+    $KeyArgs.Handled = $true
+    Invoke-UiGuard $script:ShortcutDefinitions[$id].Action $script:ShortcutDefinitions[$id].Title
+}
+
+function Select-AdjacentRequestTab {
+    param([int]$Offset)
+    $ids = @($script:requestTabs | ForEach-Object { [string]$_.Id })
+    if ($ids.Count -lt 2) { return }
+    $index = [array]::IndexOf($ids, [string]$script:activeRequestTabId)
+    $next = ($index + $Offset + $ids.Count) % $ids.Count
+    Switch-RequestTab -Id $ids[$next]
+}
+
+function Show-ShortcutEditorDialog {
+    $body = @'
+  <Grid Margin="22,18,22,18">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <StackPanel Margin="0,0,0,12">
+      <TextBlock Text="Keyboard shortcuts" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Primary}"/>
+      <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Text="Click a shortcut box and press the new key combination. Backspace or Delete removes a shortcut. Letters, digits and Enter need Ctrl or Alt; F1-F12 work on their own."/>
+    </StackPanel>
+    <Border Grid.Row="1" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="8" Padding="6">
+      <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel x:Name="ShortcutRows"/></ScrollViewer>
+    </Border>
+    <DockPanel Grid.Row="2" Margin="0,14,0,0">
+      <Button x:Name="ResetAllButton" DockPanel.Dock="Left" Width="150" Content="Reset all to defaults"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <TextBlock x:Name="ShortcutStatus" VerticalAlignment="Center" Margin="0,0,12,0" TextWrapping="Wrap" MaxWidth="360"/>
+        <Button x:Name="SaveButton" Style="{StaticResource PrimaryButton}" Width="100" Content="Save"/>
+        <Button x:Name="CancelButton" IsCancel="True" Width="100" Margin="10,0,0,0" Content="Cancel"/>
+      </StackPanel>
+    </DockPanel>
+  </Grid>
+'@
+    $dialog = New-DialogWindow -BodyXaml $body -ControlNames 'ShortcutRows', 'ResetAllButton', 'ShortcutStatus', 'SaveButton', 'CancelButton' -Title 'Keyboard shortcuts' -Width 760 -Height 720
+    $window = $dialog.Window; $controls = $dialog.Controls
+    $bindings = Get-ShortcutBindings
+    $script:shortcutEditorBoxes = [ordered]@{}
+    foreach ($id in $script:ShortcutDefinitions.Keys) {
+        $definition = $script:ShortcutDefinitions[$id]
+        $row = New-Object System.Windows.Controls.Grid
+        $row.Margin = [System.Windows.Thickness]::new(8, 4, 8, 4)
+        foreach ($width in @('*', '190', 'Auto')) {
+            $column = New-Object System.Windows.Controls.ColumnDefinition
+            $column.Width = if ($width -eq '*') { [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star) } elseif ($width -eq 'Auto') { [System.Windows.GridLength]::Auto } else { [System.Windows.GridLength]::new([double]$width) }
+            $row.ColumnDefinitions.Add($column)
+        }
+        $label = New-Object System.Windows.Controls.TextBlock
+        $label.Text = $definition.Title; $label.VerticalAlignment = 'Center'
+        $label.ToolTip = "Default: $($definition.Default)"
+        $box = New-Object System.Windows.Controls.TextBox
+        $box.Text = [string]$bindings[$id]; $box.IsReadOnly = $true; $box.Height = 30; $box.VerticalContentAlignment = 'Center'; $box.HorizontalContentAlignment = 'Center'
+        $box.Tag = $id; $box.Cursor = [System.Windows.Input.Cursors]::Hand; $box.ToolTip = 'Click, then press the key combination'
+        $box.Add_PreviewKeyDown({
+            param($sender, $keyArgs)
+            $key = if ($keyArgs.Key -eq [System.Windows.Input.Key]::System) { $keyArgs.SystemKey } else { $keyArgs.Key }
+            $modifiers = [System.Windows.Input.Keyboard]::Modifiers
+            if ($key -eq [System.Windows.Input.Key]::Tab -and $modifiers -eq [System.Windows.Input.ModifierKeys]::None) { return }   # keep Tab for moving between boxes
+            $keyArgs.Handled = $true
+            if ($key -in @([System.Windows.Input.Key]::LeftCtrl, [System.Windows.Input.Key]::RightCtrl, [System.Windows.Input.Key]::LeftShift, [System.Windows.Input.Key]::RightShift, [System.Windows.Input.Key]::LeftAlt, [System.Windows.Input.Key]::RightAlt, [System.Windows.Input.Key]::LWin, [System.Windows.Input.Key]::RWin)) { return }
+            if (($key -eq [System.Windows.Input.Key]::Back -or $key -eq [System.Windows.Input.Key]::Delete) -and $modifiers -eq [System.Windows.Input.ModifierKeys]::None) { $sender.Text = ''; return }
+            $isFunctionKey = ([string]$key) -match '^F([1-9]|1[0-2])$'
+            if (-not $isFunctionKey -and -not ($modifiers -band ([System.Windows.Input.ModifierKeys]::Control -bor [System.Windows.Input.ModifierKeys]::Alt))) {
+                $script:shortcutStatusText.Text = 'Use Ctrl or Alt with this key (F1-F12 work on their own).'; return
+            }
+            $gesture = Format-Shortcut -Key $key -Modifiers $modifiers
+            if ($script:ReservedShortcuts -contains $gesture) { $script:shortcutStatusText.Text = "$gesture is used for editing text and cannot be assigned."; return }
+            $sender.Text = $gesture
+            $script:shortcutStatusText.Text = ''
+        })
+        $resetButton = New-Object System.Windows.Controls.Button
+        $resetButton.Content = 'Default'; $resetButton.Width = 80; $resetButton.Height = 30; $resetButton.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
+        $resetButton.Tag = $box
+        $resetButton.ToolTip = "Reset to $($definition.Default)"
+        $resetButton.Add_Click({ param($sender) $sender.Tag.Text = $script:ShortcutDefinitions[[string]$sender.Tag.Tag].Default })
+        [System.Windows.Controls.Grid]::SetColumn($box, 1); [System.Windows.Controls.Grid]::SetColumn($resetButton, 2)
+        [void]$row.Children.Add($label); [void]$row.Children.Add($box); [void]$row.Children.Add($resetButton)
+        [void]$controls['ShortcutRows'].Children.Add($row)
+        $script:shortcutEditorBoxes[$id] = $box
+    }
+    $script:shortcutStatusText = $controls['ShortcutStatus']
+    $script:shortcutStatusText.SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, 'Primary')
+    $controls['ResetAllButton'].Add_Click({ foreach ($id in $script:shortcutEditorBoxes.Keys) { $script:shortcutEditorBoxes[$id].Text = $script:ShortcutDefinitions[$id].Default } })
+    $controls['SaveButton'].Add_Click({
+        $seen = @{}
+        foreach ($id in $script:shortcutEditorBoxes.Keys) {
+            $gesture = $script:shortcutEditorBoxes[$id].Text.Trim()
+            if (-not $gesture) { continue }
+            $lookupKey = $gesture.ToLowerInvariant()
+            if ($seen.ContainsKey($lookupKey)) {
+                $script:shortcutStatusText.Text = "$gesture is used twice: '$($script:ShortcutDefinitions[$seen[$lookupKey]].Title)' and '$($script:ShortcutDefinitions[$id].Title)'."
+                return
+            }
+            $seen[$lookupKey] = $id
+        }
+        $custom = @{}
+        foreach ($id in $script:shortcutEditorBoxes.Keys) { $custom[$id] = $script:shortcutEditorBoxes[$id].Text.Trim() }
+        $script:settings.KeyboardShortcuts = $custom
+        Save-Settings
+        Update-ShortcutLookup
+        $window.DialogResult = $true
+    })
+    [void](Show-WpfDialog -Window $window -OwnerForm (Get-MainWindow))
 }
 #endregion

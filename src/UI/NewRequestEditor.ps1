@@ -2,7 +2,7 @@
 
 function Initialize-NewUiTypes {
     if ('MultipartRow' -as [type]) { return }
-    Add-Type -TypeDefinition @'
+    $rowTypes = @'
 using System.ComponentModel;
 
 public class MultipartRow : INotifyPropertyChanged
@@ -80,6 +80,99 @@ public class RunnerRow : INotifyPropertyChanged
     public object Variables { get; set; }
 }
 '@
+    if (-not (Import-CompiledTypes -Name 'ApiTesterRows' -ProbeType 'MultipartRow' -Source $rowTypes)) { throw 'The editor types could not be compiled.' }
+
+    # Fast syntax highlighting (needs the WPF assemblies). Without it the slower PowerShell highlighter is used.
+    $highlighterSource = @'
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
+
+// A {{variable}} found while highlighting (used for the hover tooltip).
+public class HighlightVariable
+{
+    public int Start;
+    public int End;
+    public string Name;
+}
+
+// Syntax highlighting for the code editors. One shared brush per token kind: a theme change only recolours the brushes,
+// so the text does not have to be highlighted again.
+public static class ApiTesterHighlighter
+{
+    private static readonly Dictionary<string, SolidColorBrush> brushes = new Dictionary<string, SolidColorBrush>();
+    private static readonly Dictionary<string, Regex> patterns = new Dictionary<string, Regex>();
+    private static readonly string[] kinds = { "variable", "comment", "key", "string", "number", "literal", "tag", "attribute", "punctuation" };
+
+    public static void SetPattern(string language, string pattern)
+    {
+        patterns[language] = new Regex(pattern, RegexOptions.Compiled);
+    }
+
+    public static void SetPalette(IDictionary palette)
+    {
+        foreach (DictionaryEntry entry in palette)
+        {
+            string kind = Convert.ToString(entry.Key);
+            Color color = (Color)ColorConverter.ConvertFromString(Convert.ToString(entry.Value));
+            SolidColorBrush brush;
+            if (brushes.TryGetValue(kind, out brush)) { brush.Color = color; }
+            else { brushes[kind] = new SolidColorBrush(color); }
+        }
+    }
+
+    public static SolidColorBrush GetBrush(string kind)
+    {
+        SolidColorBrush brush;
+        return brushes.TryGetValue(kind, out brush) ? brush : null;
+    }
+
+    public static List<HighlightVariable> Apply(TextBlock target, string text, string language, string[] knownVariables)
+    {
+        List<HighlightVariable> variables = new List<HighlightVariable>();
+        Dictionary<string, bool> known = new Dictionary<string, bool>(StringComparer.Ordinal);
+        if (knownVariables != null) { foreach (string variableName in knownVariables) { if (variableName != null) { known[variableName] = true; } } }
+        target.Inlines.Clear();
+        if (text == null) { text = string.Empty; }
+        Regex regex;
+        if (!patterns.TryGetValue(language ?? "text", out regex) && !patterns.TryGetValue("text", out regex)) { target.Text = text; return variables; }
+        int position = 0;
+        foreach (Match match in regex.Matches(text))
+        {
+            if (match.Index > position) { target.Inlines.Add(new Run(text.Substring(position, match.Index - position))); }
+            string kind = "punctuation";
+            foreach (string candidate in kinds) { if (match.Groups[candidate].Success) { kind = candidate; break; } }
+            Run run = new Run(match.Value);
+            if (kind == "variable")
+            {
+                string name = match.Value.Substring(2, match.Value.Length - 4).Trim();
+                run.Foreground = GetBrush(known.ContainsKey(name) ? "variable" : "missing") ?? Brushes.Gray;
+                run.FontWeight = FontWeights.SemiBold;
+                variables.Add(new HighlightVariable { Start = match.Index, End = match.Index + match.Length, Name = name });
+            }
+            else
+            {
+                Brush brush = GetBrush(kind);
+                if (brush != null) { run.Foreground = brush; }
+            }
+            target.Inlines.Add(run);
+            position = match.Index + match.Length;
+        }
+        if (position < text.Length) { target.Inlines.Add(new Run(text.Substring(position))); }
+        // A trailing newline needs an extra line so the overlay keeps the same height as the text box.
+        if (text.EndsWith("\n")) { target.Inlines.Add(new Run(" ")); }
+        return variables;
+    }
+}
+'@
+    $wpfAssemblies = @([System.Windows.Controls.TextBlock].Assembly.Location, [System.Windows.Media.Brush].Assembly.Location,
+        [System.Windows.DependencyObject].Assembly.Location, [System.Xaml.XamlReader].Assembly.Location)
+    $script:fastHighlighter = Import-CompiledTypes -Name 'ApiTesterHighlighter' -ProbeType 'ApiTesterHighlighter' -Source $highlighterSource -References $wpfAssemblies
 }
 
 # Reads a property from a hashtable or a PSCustomObject (collections and tabs are stored as either).
@@ -714,7 +807,7 @@ function Select-Environment {
         Set-UiStatus "Applied environment '$name'."
     }
     Update-ExtractVariableChoices
-    Update-AllCodeHighlights
+    Update-AllCodeHighlights -Except 'ResponseBody'
 }
 
 # ------------------------------------------------------------------------------------------------
@@ -808,6 +901,7 @@ function Update-RequestPoll {
     if ($script:pendingRequests.Count -eq 0) { $script:requestPollTimer.Stop() }
     Update-SendButtons
     Update-TabRunningIndicators
+    if ($script:themeReloadPending -and $script:pendingRequests.Count -eq 0) { $script:themeReloadPending = $false; Restart-MainWindow }
 }
 
 function Complete-SendRequest {
@@ -1326,22 +1420,35 @@ function Set-ResponseDock {
     $script:settings.ResponseDockState = $Dock
 }
 
+$script:DockChoices = @(@('Dock to the right', 'Right'), @('Dock to the bottom', 'Bottom'), @('Dock to the left', 'Left'), @('Undock (own window)', 'Undocked'))
+
+function Add-DockMenuItems {
+    param($ItemsControl)
+    foreach ($choice in $script:DockChoices) {
+        $menuItem = New-Object System.Windows.Controls.MenuItem
+        $menuItem.Header = $choice[0]; $menuItem.Tag = $choice[1]
+        $menuItem.Add_Click({ param($sender) Invoke-UiGuard { Set-ResponseDock -Dock ([string]$sender.Tag); Save-Settings } 'Dock' })
+        [void]$ItemsControl.Items.Add($menuItem)
+    }
+}
+
+function Update-DockMenuChecks {
+    param($ItemsControl)
+    foreach ($menuItem in $ItemsControl.Items) { if ($menuItem -is [System.Windows.Controls.MenuItem]) { $menuItem.IsChecked = ([string]$menuItem.Tag -eq [string]$script:settings.ResponseDockState) } }
+}
+
+# Sub-menu "Response position" in the response toolbar's more menu.
+function Initialize-DockMenu {
+    param($MenuItem)
+    Add-DockMenuItems -ItemsControl $MenuItem
+    $MenuItem.Add_SubmenuOpened({ param($sender) Update-DockMenuChecks -ItemsControl $sender })
+}
+
+# Right-click menu on the response toolbar (classic behaviour).
 function New-DockingContextMenu {
     $menu = New-Object System.Windows.Controls.ContextMenu
-    $docking = New-Object System.Windows.Controls.MenuItem
-    $docking.Header = 'Docking Options'
-    $menu.Tag = @{}
-    foreach ($entry in @(@('Dock to Bottom', 'Bottom'), @('Dock to Left', 'Left'), @('Dock to Right', 'Right'), @('-', ''), @('Undock Panel', 'Undocked'))) {
-        if ($entry[0] -eq '-') { [void]$menu.Items.Add((New-Object System.Windows.Controls.Separator)); continue }
-        $menuItem = New-Object System.Windows.Controls.MenuItem
-        $menuItem.Header = $entry[0]; $menuItem.Tag = $entry[1]; $menuItem.IsCheckable = $false
-        $menuItem.Add_Click({ param($sender) Invoke-UiGuard { Set-ResponseDock -Dock ([string]$sender.Tag); Save-Settings } 'Dock' })
-        [void]$menu.Items.Add($menuItem)
-    }
-    $menu.Add_Opened({
-        param($sender)
-        foreach ($menuItem in $sender.Items) { if ($menuItem -is [System.Windows.Controls.MenuItem]) { $menuItem.Header = ($(if ($menuItem.Tag -eq $script:settings.ResponseDockState) { [string][char]0x2713 + '  ' } else { '    ' }) + ($menuItem.Header -replace '^[\u2713 ]+', '')) } }
-    })
+    Add-DockMenuItems -ItemsControl $menu
+    $menu.Add_Opened({ param($sender) Update-DockMenuChecks -ItemsControl $sender })
     return $menu
 }
 

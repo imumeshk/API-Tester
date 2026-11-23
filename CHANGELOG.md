@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-11-23
+
+### Added
+- **Theme button** (☾ / ☀) in the header and **Ctrl+Shift+D**: the theme changes immediately, without a restart and without closing the window - running requests, tabs and responses are not affected.
+- **Custom keyboard shortcuts:** Help -> Keyboard Shortcuts... (**F1**) - 18 actions, any combination, duplicate and reserved-key checks, reset per action or all. New defaults: Ctrl+S (save request), Ctrl+L (URL box), Ctrl+D (duplicate tab), Ctrl+Tab / Ctrl+Shift+Tab (switch tabs), Ctrl+B (beautify), Ctrl+E (environments), Ctrl+I (import cURL), Ctrl+M (monitors), Ctrl+Shift+X (cancel request), Ctrl+Shift+O (settings).
+- **Response ⋯ menu:** Go to line, Extract variable, Wrap long lines and Response position (right, bottom, left or own window).
+
+### Changed
+- **Settings** is organised in tabs: General, Interface, Requests, History and Files.
+- **Manage Environments** is grouped into cards - Variables, Request defaults and Authentication (every field labelled) - with equal-size New / Delete / New from current request buttons.
+- **Monitor Manager** buttons have one size and are grouped (monitor actions, views, log and email); "Email config" is now "Email settings".
+- **WebSocket client:** themed log area, status pill and an even toolbar.
+- **Response toolbar** is a single row that adapts to the panel width; the console Run / Clear buttons are normal size; menus use spacing instead of separator lines and show a tick for toggles; lists, rich-text logs and grid selections follow the theme; the bar between the body and the response is no longer visible.
+- **Faster start-up:** the editor helper types are compiled once and cached in `%LOCALAPPDATA%\API-Tester\Cache`; the DPI helper is only compiled for `-ClassicUi`; monitors start after the window is shown; saved history responses are kept in `History\Responses` instead of inside the history file (existing history is converted automatically).
+- **Syntax highlighting** runs as compiled code - large responses no longer slow the window down.
+- **Data folders:** `Configuration`, `History` and `Logs` are no longer part of the download; they are created on first start (and again if deleted), in `%LOCALAPPDATA%\API-Tester` when the script folder is read-only.
+
+### Fixed
+- Switching the theme froze the window and only took effect after restarting the app.
+- The first window took long to appear (C# compiled at every start, large history file).
+- `Build.ps1` now explains which source files are missing (for example when only changed files were copied) instead of failing with a path error.
+
 ## [3.0.0] - 2026-11-13
 
 ### Added
@@ -22,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Code snippets:** Go, Java and JavaScript (axios) in addition to cURL, PowerShell, Python, C# and JavaScript.
 - **Updater:** daily background update check at start-up (can be switched off); downloads are verified against `API-Tester.ps1.sha256`.
 - **User guide:** `docs/USER_GUIDE.md` covers installation, every feature, shortcuts and troubleshooting.
-- **Release tooling:** `tools/Release.ps1` (changelog, version, release notes, build, tag, push, GitHub releases, verification) and GitHub Actions workflows `build.yml` and `release.yml`.
+- **Release automation:** GitHub Actions workflows `build.yml` (build and syntax check on every push) and `release.yml` (publishes a release when a version tag is pushed).
 
 ### Changed
 - Headless runs use the same engine as the app (auth, all body types, pre-request scripts, PowerShell tests, collection and data-file variables).
@@ -78,6 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic JSON and XML highlighting.
 - Built strictly on `System.Windows.Forms` in a single file.
 
-[Unreleased]: https://github.com/imumeshk/API-Tester/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/imumeshk/API-Tester/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/imumeshk/API-Tester/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/imumeshk/API-Tester/releases/tag/v3.0.0
 [2.0.0]: https://github.com/imumeshk/API-Tester/releases/tag/v2.0.0

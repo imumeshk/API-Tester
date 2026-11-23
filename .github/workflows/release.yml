@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag such as v3.0.0 (.\tools\Release.ps1 Publish does this) to publish a release.
+# Push a tag such as v3.1.0 to publish a release ($script:AppVersion in src/Config/Constants.ps1 must match it).
 # The in-app updater downloads the asset named API-Tester.ps1 from the latest non-pre-release and checks it against
 # API-Tester.ps1.sha256. Tags with a hyphen (v3.1.0-beta.1) become pre-releases, which the updater ignores.
 on:
@@ -27,7 +27,7 @@ jobs:
           if ($constants -notmatch '\$script:AppVersion\s*=\s*"([^"]+)"') { throw 'AppVersion not found in src/Config/Constants.ps1' }
           $appVersion = $Matches[1]
           $tagVersion = '${{ github.ref_name }}' -replace '^v', ''
-          if ($appVersion -ne $tagVersion) { throw "Tag ${{ github.ref_name }} does not match AppVersion $appVersion - run .\tools\Release.ps1 Prepare -Version $tagVersion" }
+          if ($appVersion -ne $tagVersion) { throw "Tag ${{ github.ref_name }} does not match AppVersion $appVersion - set `$script:AppVersion to $tagVersion in src/Config/Constants.ps1" }
 
       - name: Release notes
         shell: pwsh

@@ -13,14 +13,17 @@
 }
 
 function Save-History {
+    Initialize-DataFolders
     try { # Try block for Save-History
         $script:history | ConvertTo-Json -Depth 5 | Set-Content -Path $historyFilePath
     } catch {
         Write-Log "Failed to save history: $($_.Exception.Message)" -Level Debug
     }
+    if (Get-Command Remove-UnusedHistoryBodies -ErrorAction SilentlyContinue) { try { Remove-UnusedHistoryBodies } catch { } }
 }
 
 function Save-Globals {
+    Initialize-DataFolders
     try {
         ConvertTo-ProtectedVariables -Variables $script:globals -SecretNames @($script:settings.SecretGlobalNames) | ConvertTo-Json -Depth 10 | Out-File -FilePath $globalsFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
     } catch {
@@ -72,6 +75,7 @@ function Import-Environments {
 }
 
 function Save-Environments {
+    Initialize-DataFolders
     try {
         # Clone and Encrypt
         $jsonRaw = $script:environments | ConvertTo-Json -Depth 10
@@ -135,6 +139,7 @@ function Import-Collections {
 }
 
 function Save-Collections {
+    Initialize-DataFolders
     try {
         # Depth 50: nested folders deeper than a few levels were silently truncated at depth 10.
         $json = ConvertTo-Json -InputObject (Get-CollectionsForStorage -Collections $script:collections) -Depth 50
@@ -245,6 +250,7 @@ function Import-RequestTabs {
 }
 
 function Save-RequestTabs {
+    Initialize-DataFolders
     if ($script:isSecondaryWindow) { return }
     try {
         if (-not $script:requestTabs) { return }
@@ -277,6 +283,7 @@ function Import-RequestTemplates {
 }
 
 function Save-RequestTemplates {
+    Initialize-DataFolders
     try {
         $script:requestTemplates | ConvertTo-Json -Depth 20 | Out-File -FilePath $requestTemplatesFilePath -Encoding utf8 -NoNewline -ErrorAction Stop
     } catch {
@@ -324,6 +331,7 @@ function Import-Monitors {
 }
 
 function Save-Monitors {
+    Initialize-DataFolders
     $script:monitors | ConvertTo-Json -Depth 10 | Set-Content -Path $monitorsFilePath
 }
 
@@ -342,6 +350,7 @@ function Import-GrpcHistory {
 }
 
 function Save-GrpcHistory {
+    Initialize-DataFolders
     $script:grpcHistory | ConvertTo-Json -Depth 5 | Set-Content -Path $grpcHistoryFilePath
 }
 $script:defaultSettings = @{
@@ -384,6 +393,7 @@ $script:defaultSettings = @{
     CollectionRunnerRetries = 0
     CheckForUpdatesOnStartup = $true
     LastUpdateCheck = $null
+    KeyboardShortcuts = $null
     IgnoreSslErrors = $false
     RequestTimeoutSeconds = 60
     ResponseFontSize = 8
@@ -490,6 +500,7 @@ function Import-Settings {
 }
 
 function Save-Settings {
+    Initialize-DataFolders
     $settingsToSave = $script:settings.Clone()
     foreach ($key in $script:encryptedSettingKeys) {
         if ($settingsToSave[$key]) { $settingsToSave[$key] = Protect-String $settingsToSave[$key] }
@@ -516,6 +527,7 @@ function Import-DraftState {
 }
 
 function Save-DraftState {
+    Initialize-DataFolders
     if ($script:isSecondaryWindow) { return }
     try {
         if (-not $script:requestTabs) { return }

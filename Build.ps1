@@ -1,5 +1,5 @@
 ﻿# Builds dist\API-Tester.ps1 from src\ and writes dist\API-Tester.ps1.sha256 (used by the in-app updater).
-# Exit code 1 when the compiled script has syntax errors, so CI and tools\Release.ps1 can stop.
+# Exit code 1 when the compiled script has syntax errors, so CI (and any release script) can stop.
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -79,6 +79,20 @@ $filesToMerge = @(
     "UI\MainForm.ps1"
     "Main.ps1" # The very bottom invocation: New-ApiForm
 )
+
+# Every source file must be present. An update archive that contains only changed files has to be copied over the
+# complete repository first - building it on its own cannot work.
+$missingFiles = @($filesToMerge | Where-Object { -not (Test-Path (Join-Path $srcDir $_)) })
+if ($missingFiles.Count -gt 0) {
+    Write-Host "Cannot build: $($missingFiles.Count) of $($filesToMerge.Count) source files are missing in $srcDir" -ForegroundColor Red
+    $missingFiles | Select-Object -First 8 | ForEach-Object { Write-Host "  - src\$_" -ForegroundColor Red }
+    if ($missingFiles.Count -gt 8) { Write-Host "  ... and $($missingFiles.Count - 8) more" -ForegroundColor Red }
+    Write-Host ''
+    Write-Host 'Run Build.ps1 in the complete API Tester folder (your git clone). If you received an archive with only the' -ForegroundColor Yellow
+    Write-Host 'changed files, extract it over that folder first, for example:' -ForegroundColor Yellow
+    Write-Host '  Expand-Archive .\API-Tester-ui-fixes.zip -DestinationPath C:\path\to\API-Tester -Force' -ForegroundColor Yellow
+    exit 1
+}
 
 $constantsText = [System.IO.File]::ReadAllText((Join-Path $srcDir "Config\Constants.ps1"), [System.Text.Encoding]::UTF8)
 $appVersion = if ($constantsText -match '\$script:AppVersion\s*=\s*"([^"]+)"') { $Matches[1] } else { "unknown" }

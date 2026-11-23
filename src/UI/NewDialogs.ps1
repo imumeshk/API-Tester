@@ -306,51 +306,84 @@ function Show-RequestTemplatesDialog {
 
 function Show-EnvironmentManager {
     $body = @'
-  <Grid Margin="22,18,22,18">
-    <Grid.ColumnDefinitions><ColumnDefinition Width="210"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+  <Grid Margin="20,16,20,16">
+    <Grid.Resources>
+      <Style x:Key="EnvCard" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource Surface}"/><Setter Property="BorderBrush" Value="{StaticResource Border}"/><Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="16,12"/><Setter Property="Margin" Value="0,0,0,12"/>
+      </Style>
+      <Style x:Key="EnvNote" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource Muted}"/><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="Margin" Value="0,2,0,10"/>
+      </Style>
+    </Grid.Resources>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <TextBlock Grid.ColumnSpan="3" Text="Manage Environments" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Primary}" Margin="0,0,0,12"/>
-    <Grid Grid.Row="1">
-      <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-      <ListBox x:Name="EnvironmentList"/>
-      <WrapPanel Grid.Row="1" Margin="0,8,0,0">
-        <Button x:Name="AddEnvironmentButton" Style="{StaticResource SmallButton}" Content="Add..."/>
-        <Button x:Name="SaveCurrentButton" Style="{StaticResource SmallButton}" Content="Save current..." ToolTip="Create an environment from the request in the editor"/>
-        <Button x:Name="RemoveEnvironmentButton" Style="{StaticResource SmallButton}" Content="Remove"/>
-      </WrapPanel>
-    </Grid>
+    <StackPanel Grid.ColumnSpan="3" Margin="0,0,0,12">
+      <TextBlock Text="Environments" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Primary}"/>
+      <TextBlock Style="{StaticResource EnvNote}" Margin="0,2,0,0" Text="An environment holds the variables for one stage of an API, for example Dev, Test or Prod. Pick it in the header to use it."/>
+    </StackPanel>
+    <Border Grid.Row="1" Style="{StaticResource EnvCard}" Margin="0" Padding="10">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Top" Style="{StaticResource SectionLabel}" Text="ENVIRONMENTS" Margin="4,0,0,8"/>
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+          <UniformGrid Columns="2">
+            <Button x:Name="AddEnvironmentButton" Height="32" Margin="0,0,4,0" Content="+ New..."/>
+            <Button x:Name="RemoveEnvironmentButton" Height="32" Margin="4,0,0,0" Content="Delete"/>
+          </UniformGrid>
+          <Button x:Name="SaveCurrentButton" Height="32" Margin="0,8,0,0" Content="New from current request..." ToolTip="Create an environment from the URL, headers and auth of the request in the editor"/>
+        </StackPanel>
+        <ListBox x:Name="EnvironmentList" BorderThickness="0" Background="Transparent"/>
+      </DockPanel>
+    </Border>
     <ScrollViewer Grid.Row="1" Grid.Column="2" VerticalScrollBarVisibility="Auto">
-      <StackPanel x:Name="EditorPanel" IsEnabled="False">
-        <TextBlock Style="{StaticResource SectionLabel}" Text="URL"/>
-        <TextBox x:Name="EnvUrlBox" Margin="0,4,0,10" Height="28" VerticalContentAlignment="Center"/>
-        <TextBlock Style="{StaticResource SectionLabel}" Text="HEADERS (Name: value, one per line)"/>
-        <TextBox x:Name="EnvHeadersBox" Margin="0,4,0,10" Height="70" AcceptsReturn="True" FontFamily="Consolas" VerticalScrollBarVisibility="Auto"/>
-        <TextBlock Style="{StaticResource SectionLabel}" Text="VARIABLES"/>
-        <Grid Margin="0,4,0,10" Height="190">@@ENVVARS@@</Grid>
-        <TextBlock Style="{StaticResource SectionLabel}" Text="AUTHENTICATION"/>
-        <ComboBox x:Name="EnvAuthTypeBox" Margin="0,4,0,8" Width="200" HorizontalAlignment="Left" Height="28" VerticalContentAlignment="Center"/>
-        <Grid x:Name="EnvAuthFields">
-          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-          <StackPanel x:Name="EnvAuthField1Panel"><TextBlock x:Name="EnvAuthLabel1" Style="{StaticResource SectionLabel}"/><TextBox x:Name="EnvAuthField1Box" Margin="0,4,0,8" Height="28" VerticalContentAlignment="Center"/></StackPanel>
-          <StackPanel x:Name="EnvAuthField2Panel" Grid.Column="2"><TextBlock x:Name="EnvAuthLabel2" Style="{StaticResource SectionLabel}"/><TextBox x:Name="EnvAuthField2Box" Margin="0,4,0,8" Height="28" VerticalContentAlignment="Center"/></StackPanel>
-          <StackPanel x:Name="EnvAuthField3Panel" Grid.Row="1"><TextBlock x:Name="EnvAuthLabel3" Style="{StaticResource SectionLabel}"/><ComboBox x:Name="EnvAuthAddToBox" Margin="0,4,0,8" Height="28" VerticalContentAlignment="Center"/></StackPanel>
-        </Grid>
-        <TextBlock x:Name="EnvAuthNote" Foreground="{StaticResource Muted}" TextWrapping="Wrap"/>
+      <StackPanel x:Name="EditorPanel" IsEnabled="False" Margin="0,0,6,0">
+        <TextBlock x:Name="EnvTitleText" FontSize="16" FontWeight="SemiBold" Margin="2,0,0,10" Text="Select or create an environment"/>
+        <Border Style="{StaticResource EnvCard}">
+          <StackPanel>
+            <TextBlock Style="{StaticResource SectionLabel}" Text="VARIABLES"/>
+            <TextBlock Style="{StaticResource EnvNote}" Text="Use them anywhere as {{name}}. Tick Secret to mask a value and keep it out of exports."/>
+            <Grid Height="230">@@ENVVARS@@</Grid>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource EnvCard}">
+          <StackPanel>
+            <TextBlock Style="{StaticResource SectionLabel}" Text="REQUEST DEFAULTS (OPTIONAL)"/>
+            <TextBlock Style="{StaticResource EnvNote}" Text="Applied to the request in the editor when you pick this environment. Leave them empty to keep the request's own values."/>
+            <TextBlock Text="Base URL" Margin="0,0,0,4"/>
+            <TextBox x:Name="EnvUrlBox" Height="32" VerticalContentAlignment="Center" Margin="0,0,0,10"/>
+            <TextBlock Text="Headers (Name: value, one per line)" Margin="0,0,0,4"/>
+            <TextBox x:Name="EnvHeadersBox" Height="76" AcceptsReturn="True" FontFamily="Consolas" VerticalScrollBarVisibility="Auto"/>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource EnvCard}" Margin="0">
+          <StackPanel>
+            <TextBlock Style="{StaticResource SectionLabel}" Text="AUTHENTICATION (OPTIONAL)"/>
+            <TextBlock Style="{StaticResource EnvNote}" Text="Applied to the request when you pick this environment."/>
+            <ComboBox x:Name="EnvAuthTypeBox" Width="240" Height="32" HorizontalAlignment="Left" VerticalContentAlignment="Center" Margin="0,0,0,10"/>
+            <Grid x:Name="EnvAuthFields">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <StackPanel x:Name="EnvAuthField1Panel"><TextBlock x:Name="EnvAuthLabel1" Margin="0,0,0,4"/><TextBox x:Name="EnvAuthField1Box" Margin="0,0,0,10" Height="32" VerticalContentAlignment="Center"/></StackPanel>
+              <StackPanel x:Name="EnvAuthField2Panel" Grid.Column="2"><TextBlock x:Name="EnvAuthLabel2" Margin="0,0,0,4"/><TextBox x:Name="EnvAuthField2Box" Margin="0,0,0,10" Height="32" VerticalContentAlignment="Center"/></StackPanel>
+              <StackPanel x:Name="EnvAuthField3Panel" Grid.Row="1"><TextBlock x:Name="EnvAuthLabel3" Margin="0,0,0,4"/><ComboBox x:Name="EnvAuthAddToBox" Margin="0,0,0,10" Height="32" VerticalContentAlignment="Center"/></StackPanel>
+            </Grid>
+            <TextBlock x:Name="EnvAuthNote" Foreground="{StaticResource Muted}" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
       </StackPanel>
     </ScrollViewer>
     <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
       <TextBlock x:Name="EnvStatusText" VerticalAlignment="Center" Margin="0,0,14,0" Foreground="{StaticResource Muted}"/>
-      <Button x:Name="ApplyButton" Style="{StaticResource PrimaryButton}" Width="100" Content="Save"/>
-      <Button x:Name="CloseButton" IsCancel="True" Width="90" Margin="10,0,0,0" Content="Close"/>
+      <Button x:Name="ApplyButton" Style="{StaticResource PrimaryButton}" Width="100" Height="34" Content="Save"/>
+      <Button x:Name="CloseButton" IsCancel="True" Width="100" Height="34" Margin="10,0,0,0" Content="Close"/>
     </StackPanel>
   </Grid>
 '@
-    $names = 'EnvironmentList', 'AddEnvironmentButton', 'SaveCurrentButton', 'RemoveEnvironmentButton', 'EditorPanel', 'EnvUrlBox', 'EnvHeadersBox', 'EnvVarsAddButton', 'EnvVarsRemoveButton', 'EnvVarsRevealBox', 'EnvVarsGrid', 'EnvAuthTypeBox',
+    $names = 'EnvironmentList', 'EnvTitleText', 'AddEnvironmentButton', 'SaveCurrentButton', 'RemoveEnvironmentButton', 'EditorPanel', 'EnvUrlBox', 'EnvHeadersBox', 'EnvVarsAddButton', 'EnvVarsRemoveButton', 'EnvVarsRevealBox', 'EnvVarsGrid', 'EnvAuthTypeBox',
         'EnvAuthFields', 'EnvAuthField1Panel', 'EnvAuthLabel1', 'EnvAuthField1Box', 'EnvAuthField2Panel', 'EnvAuthLabel2', 'EnvAuthField2Box', 'EnvAuthField3Panel', 'EnvAuthLabel3', 'EnvAuthAddToBox',
         'EnvAuthNote', 'EnvStatusText', 'ApplyButton', 'CloseButton'
     $body = $body.Replace('@@ENVVARS@@', (Get-VariablesGridXaml -Prefix 'EnvVars'))
-    $dialog = New-DialogWindow -BodyXaml $body -ControlNames $names -Title 'Manage Environments' -Width 900 -Height 720
+    $dialog = New-DialogWindow -BodyXaml $body -ControlNames $names -Title 'Manage Environments' -Width 1000 -Height 780
     $window = $dialog.Window; $controls = $dialog.Controls
 
     foreach ($authType in @('No Auth', 'API Key', 'Bearer Token', 'Basic Auth', 'Auth2', 'Client Certificate')) { [void]$controls['EnvAuthTypeBox'].Items.Add($authType) }
@@ -420,6 +453,10 @@ function Show-EnvironmentManager {
     }
 
     Register-VariablesGrid -Controls $controls -Prefix 'EnvVars'
+    $controls['EnvironmentList'].Add_SelectionChanged({
+        $selectedName = [string]$controls['EnvironmentList'].SelectedItem
+        $controls['EnvTitleText'].Text = if ($selectedName) { $selectedName } else { 'Select or create an environment' }
+    })
     & $refreshList
     $controls['EnvironmentList'].Add_SelectionChanged({ & $loadIntoEditor ([string]$controls['EnvironmentList'].SelectedItem) })
 

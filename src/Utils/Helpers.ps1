@@ -57,6 +57,7 @@ function Write-Log {
         [string]$Message,
         [ValidateSet('Info', 'Debug', 'Warning', 'Error')][string]$Level = 'Debug' # Default to Debug for existing calls
     )
+    if ($logFilePath -and -not (Test-Path -LiteralPath (Split-Path -Parent $logFilePath))) { Initialize-DataFolders }
     if ($script:settings.EnableLogs) {
         # Log Rotation: Check if file exceeds 5MB and rotate if necessary
         if (Test-Path $logFilePath) {

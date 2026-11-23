@@ -13,7 +13,7 @@ if (-not $Headless -and $PSCommandPath -and [System.Threading.Thread]::CurrentTh
 
 
 # --- App Metadata ---
-$script:AppVersion     = "3.0.0"
+$script:AppVersion     = "3.1.0"
 $script:AppGitHubRepo  = "imumeshk/API-Tester"
 $script:AppGitHubAsset = "API-Tester.ps1"   # Name of the .ps1 asset attached to GitHub Releases
 
@@ -21,15 +21,36 @@ $script:AppGitHubAsset = "API-Tester.ps1"   # Name of the .ps1 asset attached to
 # This approach works for both standard execution and in the PowerShell ISE.
 $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Path $MyInvocation.MyCommand.Path -Parent }
 
-# Define directories for organization
-$configDir = Join-Path -Path $scriptRoot -ChildPath "Configuration"
-$historyDir = Join-Path -Path $scriptRoot -ChildPath "History"
-$logsDir = Join-Path -Path $scriptRoot -ChildPath "Logs"
+# Data folders: Configuration, History and Logs are NOT part of the download or the repository. They are created
+# next to the script the first time API Tester runs, and again before saving if they were deleted in the meantime.
+# When the script's folder cannot be written to (for example under Program Files), %LOCALAPPDATA%\API-Tester is used.
+function Test-FolderWritable {
+    param([string]$Path)
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) { [void](New-Item -ItemType Directory -Path $Path -Force -ErrorAction Stop) }
+        $probe = Join-Path $Path (".api-tester-write-test-{0}" -f [guid]::NewGuid().ToString('N'))
+        [System.IO.File]::WriteAllText($probe, '')
+        Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+        return $true
+    } catch { return $false }
+}
 
-# Auto-create directories if they don't exist
-if (-not (Test-Path -Path $configDir)) { New-Item -ItemType Directory -Path $configDir -Force | Out-Null }
-if (-not (Test-Path -Path $historyDir)) { New-Item -ItemType Directory -Path $historyDir -Force | Out-Null }
-if (-not (Test-Path -Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
+function Initialize-DataFolders {
+    foreach ($folder in @($script:configDir, $script:historyDir, $script:logsDir)) {
+        if ($folder -and -not (Test-Path -LiteralPath $folder)) {
+            try { [void](New-Item -ItemType Directory -Path $folder -Force -ErrorAction Stop) } catch { }
+        }
+    }
+}
+
+$dataRoot = $scriptRoot
+if (-not (Test-FolderWritable -Path (Join-Path -Path $scriptRoot -ChildPath "Configuration"))) {
+    $dataRoot = Join-Path -Path $env:LOCALAPPDATA -ChildPath "API-Tester"
+}
+$configDir = Join-Path -Path $dataRoot -ChildPath "Configuration"
+$historyDir = Join-Path -Path $dataRoot -ChildPath "History"
+$logsDir = Join-Path -Path $dataRoot -ChildPath "Logs"
+Initialize-DataFolders
 
 # Migration: Move existing files to new locations if they exist in root
 $filesToMoveToConfig = @("api_tester_settings.json", "api_tester_settings.json.bak", "api_tester_environments.json", "api_tester_globals.json", "api_tester_collections.json", "api_tester_monitors.json", "api_tester_workspace.apw")
@@ -37,7 +58,7 @@ foreach ($file in $filesToMoveToConfig) {
     $sourcePath = Join-Path -Path $scriptRoot -ChildPath $file
     $destPath = Join-Path -Path $configDir -ChildPath $file
     if ((Test-Path -Path $sourcePath) -and -not (Test-Path -Path $destPath)) {
-        Move-Item -Path $sourcePath -Destination $destPath -Force
+        try { Move-Item -Path $sourcePath -Destination $destPath -Force -ErrorAction Stop } catch { Copy-Item -Path $sourcePath -Destination $destPath -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -46,7 +67,7 @@ foreach ($file in $filesToMoveToHistory) {
     $sourcePath = Join-Path -Path $scriptRoot -ChildPath $file
     $destPath = Join-Path -Path $historyDir -ChildPath $file
     if ((Test-Path -Path $sourcePath) -and -not (Test-Path -Path $destPath)) {
-        Move-Item -Path $sourcePath -Destination $destPath -Force
+        try { Move-Item -Path $sourcePath -Destination $destPath -Force -ErrorAction Stop } catch { Copy-Item -Path $sourcePath -Destination $destPath -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -56,12 +77,12 @@ foreach ($file in $filesToMoveToLogs) {
     $sourcePath = Join-Path -Path $scriptRoot -ChildPath $file
     $destPath = Join-Path -Path $logsDir -ChildPath $file
     if ((Test-Path -Path $sourcePath) -and -not (Test-Path -Path $destPath)) {
-        Move-Item -Path $sourcePath -Destination $destPath -Force
+        try { Move-Item -Path $sourcePath -Destination $destPath -Force -ErrorAction Stop } catch { Copy-Item -Path $sourcePath -Destination $destPath -Force -ErrorAction SilentlyContinue }
     }
     # Check History folder (migration from previous version)
     $historySourcePath = Join-Path -Path $historyDir -ChildPath $file
     if ((Test-Path -Path $historySourcePath) -and -not (Test-Path -Path $destPath)) {
-        Move-Item -Path $historySourcePath -Destination $destPath -Force
+        try { Move-Item -Path $historySourcePath -Destination $destPath -Force -ErrorAction Stop } catch { Copy-Item -Path $historySourcePath -Destination $destPath -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -94,7 +115,8 @@ catch {
 
 try {
     # High DPI Awareness & Visual Styles (Pro Enhancement)
-    if ([Environment]::OSVersion.Version.Major -ge 6) {
+    # Only the classic WinForms window needs this (compiling it costs a second at every start of the default window).
+    if ($ClassicUi -and [Environment]::OSVersion.Version.Major -ge 6) {
         if (-not ([System.Management.Automation.PSTypeName]'Win32.NativeMethods').Type) {
             Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();' -Name "NativeMethods" -Namespace Win32 | Out-Null
         }

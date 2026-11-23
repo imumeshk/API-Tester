@@ -368,7 +368,7 @@ function Edit-CollectionVariables {
     Set-ObjectProperty -Object $collection -Name 'SecretVariables' -Value @($edited.SecretNames)
     Save-Collections
     if ($script:activeCollection -eq $collection) { Set-ActiveCollectionContext -Root $collection }
-    Update-AllCodeHighlights
+    Update-AllCodeHighlights -Except 'ResponseBody'
     Set-UiStatus 'Collection variables saved.'
 }
 
@@ -424,6 +424,59 @@ function Add-HistoryEntry {
     return $entry
 }
 
+# Saved response bodies live in History\Responses (one small file each), so the history file stays small and
+# start-up does not have to read megabytes of JSON.
+function Get-HistoryBodyFolder { return (Join-Path -Path $historyDir -ChildPath 'Responses') }
+
+function Get-SavedResponseBody {
+    param($Saved)
+    if (-not $Saved) { return $null }
+    $fileName = [string](Get-ObjectProperty $Saved 'BodyFile' '')
+    if ($fileName) {
+        $path = Join-Path -Path (Get-HistoryBodyFolder) -ChildPath $fileName
+        if (Test-Path -LiteralPath $path) { return [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8) }
+        return $null
+    }
+    return (Get-ObjectProperty $Saved 'Body' $null)
+}
+
+function Write-SavedResponseBody {
+    param([string]$Body)
+    $folder = Get-HistoryBodyFolder
+    if (-not (Test-Path -LiteralPath $folder)) { [void](New-Item -ItemType Directory -Path $folder -Force) }
+    $fileName = '{0}.txt' -f [guid]::NewGuid().ToString('N')
+    [System.IO.File]::WriteAllText((Join-Path -Path $folder -ChildPath $fileName), $Body, (New-Object System.Text.UTF8Encoding($false)))
+    return $fileName
+}
+
+# Deletes body files whose history entry is gone (trimmed to the last 50, deleted or cleared).
+function Remove-UnusedHistoryBodies {
+    $folder = Get-HistoryBodyFolder
+    if (-not (Test-Path -LiteralPath $folder)) { return }
+    $inUse = @{}
+    foreach ($entry in @($script:history | Where-Object { $_ })) {
+        $fileName = [string](Get-ObjectProperty (Get-ObjectProperty $entry 'Response' $null) 'BodyFile' '')
+        if ($fileName) { $inUse[$fileName] = $true }
+    }
+    Get-ChildItem -LiteralPath $folder -Filter '*.txt' -ErrorAction SilentlyContinue | Where-Object { -not $inUse.ContainsKey($_.Name) } |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+}
+
+# One-time conversion of history saved by earlier builds (bodies inside the history file).
+function Move-HistoryBodiesToFiles {
+    $moved = 0
+    foreach ($entry in @($script:history | Where-Object { $_ })) {
+        $response = Get-ObjectProperty $entry 'Response' $null
+        if (-not $response) { continue }
+        $body = Get-ObjectProperty $response 'Body' $null
+        if ($null -eq $body -or (Get-ObjectProperty $response 'BodyFile' '')) { continue }
+        $response | Add-Member -MemberType NoteProperty -Name 'BodyFile' -Value (Write-SavedResponseBody -Body ([string]$body)) -Force
+        $response | Add-Member -MemberType NoteProperty -Name 'Body' -Value $null -Force
+        $moved++
+    }
+    if ($moved -gt 0) { Save-History; Write-Log "Moved $moved saved response bodies out of the history file." -Level Info }
+}
+
 # Stores the response with its history entry (status, headers and - unless switched off or too large - the body).
 function Set-HistoryResponse {
     param($Entry, $Result)
@@ -433,8 +486,10 @@ function Set-HistoryResponse {
     if ($Result.Success) {
         $saved.StatusCode = [int]$Result.StatusCode; $saved.ReasonPhrase = [string]$Result.ReasonPhrase; $saved.SizeBytes = [int]$Result.SizeBytes
         $saved.ContentType = [string]$Result.ContentType; $saved.Headers = (@($Result.HeaderLines) -join "`r`n")
-        $saved.Body = if (-not $Result.IsBinary -and ([string]$Result.Body).Length -le $limitBytes) { [string]$Result.Body } else { $null }
-        $saved.BodyOmitted = ($null -eq $saved.Body)
+        $keepBody = (-not $Result.IsBinary -and ([string]$Result.Body).Length -le $limitBytes)
+        $saved.Body = $null
+        $saved.BodyFile = if ($keepBody) { Write-SavedResponseBody -Body ([string]$Result.Body) } else { '' }
+        $saved.BodyOmitted = -not $keepBody
     } else { $saved.ErrorMessage = [string]$Result.ErrorMessage }
     $Entry | Add-Member -MemberType NoteProperty -Name 'Response' -Value ([PSCustomObject]$saved) -Force
     Save-History
@@ -445,7 +500,8 @@ function ConvertFrom-SavedResponse {
     param($Saved)
     if (-not $Saved) { return $null }
     if (-not $Saved.Success) { return @{ Success = $false; ErrorMessage = [string]$Saved.ErrorMessage; ElapsedMs = [int]$Saved.ElapsedMs } }
-    $body = if ($null -ne $Saved.Body) { [string]$Saved.Body } else { '[The body was not saved - it was binary or larger than the history limit.]' }
+    $savedBody = Get-SavedResponseBody -Saved $Saved
+    $body = if ($null -ne $savedBody) { [string]$savedBody } else { '[The body was not saved - it was binary or larger than the history limit.]' }
     return @{ Success = $true; StatusCode = [int]$Saved.StatusCode; ReasonPhrase = [string]$Saved.ReasonPhrase; ElapsedMs = [int]$Saved.ElapsedMs; SizeBytes = [int]$Saved.SizeBytes
         Body = $body; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body); IsBinary = $false; HeaderLines = @(([string]$Saved.Headers) -split "`r?`n" | Where-Object { $_ }); ContentType = [string]$Saved.ContentType; ContentDispositionName = '' }
 }
@@ -558,8 +614,10 @@ function Compare-SelectedHistoryEntries {
     if ($entries.Count -ne 2) { return }
     $first = $entries[0]; $second = $entries[1]
     # Both responses saved: compare them offline. Otherwise both requests are sent again.
-    if ($first.Response -and $second.Response -and $null -ne $first.Response.Body -and $null -ne $second.Response.Body) {
-        Show-DiffDialog -Request1 $first -Request2 $second -SavedBody1 ([string]$first.Response.Body) -SavedBody2 ([string]$second.Response.Body)
+    $firstBody = Get-SavedResponseBody -Saved $first.Response
+    $secondBody = Get-SavedResponseBody -Saved $second.Response
+    if ($null -ne $firstBody -and $null -ne $secondBody) {
+        Show-DiffDialog -Request1 $first -Request2 $second -SavedBody1 ([string]$firstBody) -SavedBody2 ([string]$secondBody)
     } else { Show-DiffDialog -Request1 $first -Request2 $second }
 }
 #endregion

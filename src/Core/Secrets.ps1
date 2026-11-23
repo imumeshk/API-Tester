@@ -65,6 +65,22 @@ function Test-IsSecretVariable {
     return $false
 }
 
+function Get-KnownVariableNames {
+    $names = New-Object System.Collections.Generic.List[string]
+    $addKeys = {
+        param($Table)
+        if (-not $Table) { return }
+        if ($Table -is [System.Collections.IDictionary]) { foreach ($key in $Table.Keys) { $names.Add([string]$key) } }
+        else { foreach ($property in $Table.PSObject.Properties) { $names.Add($property.Name) } }
+    }
+    & $addKeys $script:iterationVariables
+    & $addKeys (Get-ObjectProperty (Get-ActiveEnvironmentData) 'Variables' $null)
+    & $addKeys $script:activeCollectionVariables
+    & $addKeys $script:globals
+    foreach ($dynamicName in @('$guid', '$timestamp', '$randomInt')) { $names.Add($dynamicName) }
+    return $names.ToArray()
+}
+
 # Where a {{variable}} resolves from: @{ Found; Value; Source; Secret }. Same order as Expand-Variables.
 function Resolve-VariableSource {
     param([string]$Name)

@@ -68,7 +68,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\API-Tester.ps1
 | `.\API-Tester.ps1 -Headless -RunCollection "My APIs"` | Runs a collection without a window, for scripts and CI - see [Command line](#command-line-ci). |
 
 ### Where your data is stored
-Next to the script, in three folders:
+The download contains only `API-Tester.ps1`. The first time you start it, API Tester creates three folders next to
+the script (and creates them again if you delete them later):
 
 | Folder | Contents |
 |---|---|
@@ -77,6 +78,9 @@ Next to the script, in three folders:
 | `Logs\` | The application log. |
 
 Passwords, tokens and secret variables in these files are encrypted for your Windows account.
+
+If the script's folder cannot be written to (for example under `C:\Program Files`), the folders are created in
+`%LOCALAPPDATA%\API-Tester` instead. To start fresh, close API Tester and delete the three folders.
 
 ---
 
@@ -98,7 +102,7 @@ Passwords, tokens and secret variables in these files are encrypted for your Win
 
 | Area | What it is for |
 |---|---|
-| **Header** | Status messages and errors, the active **Environment**, **Manage...** (environments) and **Settings**. |
+| **Header** | Status messages and errors, the active **Environment**, **Manage...** (environments), **Settings** and the theme button (☾ / ☀). |
 | **Menu bar** | **Menu** (import, export, layout, settings), **Tools**, **Monitor** and **Help**. |
 | **Request tabs** | Several requests open at once. **+** opens a new tab; the **x** on a tab closes it. |
 | **Request bar** | Method, URL, **Send**, **Cancel**, **Save** and **Templates...** (and **Repeat...** when enabled in Settings). |
@@ -107,8 +111,8 @@ Passwords, tokens and secret variables in these files are encrypted for your Win
 | **Response panel** | The response and tools to inspect it. |
 
 ### Layout
-- **Dock the response** to the bottom, left or right of the editor, or **undock** it into its own window: right-click
-  the response toolbar (the row with **Prettify**, **Save...**, **Copy**) and choose **Docking Options**.
+- **Dock the response** to the right, bottom or left of the editor, or **undock** it into its own window: **⋯ ->
+  Response position** in the response toolbar (or right-click the toolbar).
 - **Undock the sidebar**: right-click the **Collections** / **History** tab headers and choose **Undock Panel**
   (choose **Dock Panel** or close the window to put it back).
 - Drag the splitters between the panels to resize them.
@@ -117,7 +121,10 @@ Passwords, tokens and secret variables in these files are encrypted for your Win
   [Settings](#12-settings).
 
 ### Light and dark theme
-**Settings -> App theme**. The change applies immediately to every open window.
+Click the **☾ / ☀** button in the header (or press **Ctrl+Shift+D**, or use **Settings -> General -> App theme**).
+The change applies immediately and is remembered. Where Windows does not repaint the colours in place, API Tester
+redraws the controls inside the open window in the new theme - the window stays open and running requests, tabs and
+responses are not affected.
 
 ---
 
@@ -192,6 +199,7 @@ The tab title shows a dot (`Options •`) while something is set there.
 |---|---|
 | Open a new tab | **+** or **Ctrl+T** |
 | Close a tab | its **x**, a middle-click, or **Ctrl+W** (you are asked first if a request is still running) |
+| Switch tabs | click, or **Ctrl+Tab** / **Ctrl+Shift+Tab** |
 | Rename | double-click the tab |
 | Reorder | drag the tab |
 | Duplicate, rename, close others, open in its own window | right-click the tab |
@@ -243,10 +251,10 @@ Built-in dynamic variables:
 ### Environments
 Use environments for the same API on different stages (Dev, Test, Prod).
 
-- **Manage...** in the header (or **Tools -> Manage Environments...**) adds, edits and removes them.
+- **Manage...** in the header (or **Tools -> Manage Environments...**): **+ New...**, **Delete**, or **New from current
+  request...** to create one from the request in the editor.
 - Each environment has **variables**, and can also have a **base URL**, **headers** and an **auth** setting. When you
   select the environment, these are applied to the current request.
-- **Save current...** creates an environment from the current request.
 
 ### Global and collection variables
 - **Tools -> Global Variables...** - values used by every request.
@@ -260,7 +268,7 @@ Tick **Secret** next to a variable (in the environment, global or collection var
 - it is never included in workspace, collection or Postman exports.
 
 ### Taking a value from a response
-**Extract variable** in the response toolbar: choose **JSON Path** (for example `data.token`) or **Regex** (the first
+**⋯ -> Extract variable...** in the response toolbar: choose **JSON Path** (for example `data.token`) or **Regex** (the first
 capture group is used, or the whole match when there is none), the scope (**Global**, **Collection** or **Environment**) and the variable name, then **Extract**.
 
 ---
@@ -329,12 +337,14 @@ The response header shows the **status** (green 2xx, amber 3xx, red 4xx/5xx), th
 
 ### Response toolbar
 - **Prettify** - format the body again.
-- **Save...** - save the body (or a binary file) to disk.
 - **Copy** - copy the body.
-- **Go to line...** - jump to a line number.
+- **Save...** - save the body (or a binary file) to disk.
 - **Find** (**Ctrl+F**) - search the body; **Enter** / **Shift+Enter** for next / previous, **Esc** to close.
-- **Extract variable** - see [above](#taking-a-value-from-a-response).
-- **Wrap** - wrap long lines.
+- **⋯** (more):
+  - **Go to line...** - jump to a line number.
+  - **Extract variable...** - see [above](#taking-a-value-from-a-response).
+  - **Wrap long lines** - on / off (a tick shows the current state).
+  - **Response position** - right, bottom, left or its own window.
 
 ### Console
 Type a command and press **Ctrl+Enter** (or **Ctrl+Shift+Enter** from anywhere). Choose the language with a prefix:
@@ -469,7 +479,7 @@ A monitor sends a request on a schedule, records the result and alerts you when 
   - *Retry before alerting* - failed checks are retried (5 seconds apart) this many times first.
   - *Quiet hours* (for example `22:00` to `07:00`) - no alerts in that time; results are still logged.
   - *Webhook* - **Teams** (incoming webhook), **Slack** (incoming webhook) or **Generic** (any URL that accepts JSON).
-  - *Send email alert to* - uses the SMTP settings (**SMTP settings...** / **Email config**, with **Test connection**).
+  - *Send email alert to* - uses the SMTP settings (**Email settings** in the Monitor Manager, with **Test connection**).
 
 Select a monitor and use **Start / Stop**, **Edit** or **Delete**. Every result is written to the monitor log
 (**Open log**, **Clear log**, **Archive log**).
@@ -542,14 +552,13 @@ the summary shows totals, errors and latency. **Stop** ends the test after the r
 
 **Settings** in the header (or **Menu -> Settings...**).
 
-| Group | Options |
+| Tab | Options |
 |---|---|
-| **UI & panel visibility** | Show or hide the environment panel, history, and each request / response tab. |
-| **Configuration** | Logging, history, auto-run on history double-click, all request methods, ignore SSL errors (for test servers with self-signed certificates), Postman and cURL import, repeat request, restore request tabs, save responses in history, check for updates at start-up. |
-| **App theme**, **Response font size** | Light / Dark (applied immediately); font size of the response viewer (8-72). |
-| **Timeout**, **Max repeats**, **Default console language** | Request timeout in seconds; how often **Repeat...** may send (1-100); the console language used without a prefix. |
-| **Auto-save & renaming** | Auto-save downloaded files to a folder, name saved files after the uploaded file(s), file-name prefix. |
-| **Log level** and logs | Info or Debug; **View logs**, **Open logs folder**, **Clear logs**. |
+| **General** | App theme (Light / Dark), response font size; reopen last session's tabs, check for updates at start-up; log file, log level, **View logs**, **Open logs folder**, **Clear logs**. |
+| **Interface** | Show or hide the environment selector, history and response panel, each request tab and each response tab. |
+| **Requests** | Timeout, all request methods, ignore SSL errors (only for test servers with self-signed certificates), the **Repeat...** button and its maximum, Postman / cURL import, default console language. |
+| **History** | Keep a history, send again on double-click, save responses with the history. |
+| **Files** | Save downloaded files automatically to a folder, name them after the uploaded file(s), add a prefix. |
 
 **Restore defaults** resets everything; **Save** applies the changes immediately.
 
@@ -557,23 +566,40 @@ the summary shows totals, errors and latency. **Stop** ends the test after the r
 
 ## 13. Keyboard and mouse shortcuts
 
-| Shortcut | Action |
+All keyboard shortcuts can be changed: **Help -> Keyboard Shortcuts...** (or **F1**). Click a shortcut box and press
+the new combination; **Backspace** or **Delete** removes it, **Default** restores one, **Reset all to defaults**
+restores all. Letters, digits and Enter need **Ctrl** or **Alt**; F1-F12 work on their own. Shortcuts used for text
+editing (Ctrl+A/C/V/X/Z/Y) cannot be assigned, and the same combination cannot be used twice.
+
+| Default | Action |
 |---|---|
 | **Ctrl+Enter** | Send the request |
-| **Ctrl+T** | New request tab |
-| **Ctrl+W** | Close the request tab |
-| **Ctrl+F** | Find in the response |
-| **Enter** / **Shift+Enter** (in Find) | Next / previous match |
-| **Esc** (in Find) | Close the find bar |
+| **Ctrl+Shift+X** | Cancel the running request |
+| **Ctrl+T** / **Ctrl+W** | New / close request tab |
+| **Ctrl+D** | Duplicate the request tab |
+| **Ctrl+Tab** / **Ctrl+Shift+Tab** | Next / previous request tab |
+| **Ctrl+S** | Save the request to a collection |
+| **Ctrl+L** | Go to the URL box |
+| **Ctrl+F** | Find in the response (**Enter** / **Shift+Enter** next / previous, **Esc** closes) |
+| **Ctrl+B** | Beautify the body |
 | **Ctrl+Shift+Enter** | Run the console command |
-| **Alt+F4** | Exit |
+| **Ctrl+Shift+D** | Switch light / dark theme |
+| **Ctrl+E** | Manage environments |
+| **Ctrl+I** | Import a cURL command |
+| **Ctrl+M** | Monitor manager |
+| **Ctrl+Shift+O** | Settings |
+| **F1** | Keyboard shortcuts |
+| **Alt+F4** | Exit (fixed) |
+
+Mouse:
+
+| Action | Result |
+|---|---|
 | Double-click a tab | Rename it |
 | Middle-click a tab | Close it |
 | Drag a tab | Reorder tabs |
-| Right-click the response toolbar | Docking options |
+| Right-click the response toolbar | Response position |
 | Double-click the tray icon | Open API Tester |
-
-**Help -> Keyboard Shortcuts...** shows the list in the app.
 
 ---
 

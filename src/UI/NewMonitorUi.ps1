@@ -806,40 +806,53 @@ function Show-MonitorScheduledTaskDialog {
 
 function Show-MonitorManagerWindow {
     $body = @'
-  <Grid Margin="16,14,16,14">
-    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <StackPanel>
-      <TextBlock Text="API monitors" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Primary}" Margin="0,0,0,8"/>
-      <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="8" Padding="12,8" Margin="0,0,0,10">
-        <DockPanel>
-          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-            <CheckBox x:Name="AutoStartBox" Content="Start background monitors when I sign in to Windows" VerticalAlignment="Center" Margin="0,0,14,0"/>
-            <Button x:Name="StartServiceButton" Style="{StaticResource PrimaryButton}" Padding="12,5" Margin="0,0,8,0" Content="Run in background"/>
-            <Button x:Name="StopServiceButton" Padding="12,5" Margin="0,0,8,0" Content="Stop background"/>
-            <Button x:Name="ScheduledTaskButton" Padding="12,5" Content="Scheduled task..."/>
-          </StackPanel>
-          <TextBlock x:Name="ServiceStatusText" VerticalAlignment="Center" TextWrapping="Wrap"/>
-        </DockPanel>
-      </Border>
-    </StackPanel>
-    <DataGrid x:Name="MonitorGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" SelectionMode="Single" GridLinesVisibility="Horizontal" Background="Transparent" RowBackground="Transparent">
+  <Grid Margin="18,16,18,16">
+    <Grid.Resources>
+      <Style x:Key="BarButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Height" Value="34"/><Setter Property="MinWidth" Value="108"/><Setter Property="Padding" Value="14,0"/><Setter Property="Margin" Value="0,0,8,8"/>
+      </Style>
+      <Style x:Key="BarPrimaryButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+        <Setter Property="Height" Value="34"/><Setter Property="MinWidth" Value="108"/><Setter Property="Padding" Value="14,0"/><Setter Property="Margin" Value="0,0,8,8"/>
+      </Style>
+    </Grid.Resources>
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <TextBlock Text="API monitors" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Primary}" Margin="0,0,0,10"/>
+    <Border Grid.Row="1" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="8" Padding="14,10,6,2" Margin="0,0,0,12">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <TextBlock x:Name="ServiceStatusText" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,16,8"/>
+        <WrapPanel Grid.Column="1" VerticalAlignment="Center">
+          <CheckBox x:Name="AutoStartBox" Content="Start when I sign in to Windows" VerticalAlignment="Center" Margin="0,0,14,8" ToolTip="Start the background monitors automatically after you sign in"/>
+          <Button x:Name="StartServiceButton" Style="{StaticResource BarPrimaryButton}" Content="Run in background"/>
+          <Button x:Name="StopServiceButton" Style="{StaticResource BarButton}" Content="Stop background"/>
+          <Button x:Name="ScheduledTaskButton" Style="{StaticResource BarButton}" Content="Scheduled task..."/>
+        </WrapPanel>
+      </Grid>
+    </Border>
+    <DataGrid x:Name="MonitorGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" SelectionMode="Single" GridLinesVisibility="Horizontal" Background="Transparent" RowBackground="Transparent">
       <DataGrid.Columns>
         <DataGridTextColumn Header="Name" Binding="{Binding C1}" Width="180"/><DataGridTextColumn Header="URL" Binding="{Binding C2}" Width="*"/>
         <DataGridTextColumn Header="Interval (s)" Binding="{Binding C3}" Width="90"/><DataGridTextColumn Header="Status" Binding="{Binding C4}" Width="90"/>
         <DataGridTextColumn Header="Last run / result" Binding="{Binding C5}" Width="300"/>
       </DataGrid.Columns>
     </DataGrid>
-    <WrapPanel Grid.Row="2" Margin="0,12,0,0" HorizontalAlignment="Center">
-      <Button x:Name="BrowserButton" Style="{StaticResource PrimaryButton}" Padding="12,6" Margin="0,0,6,0" Content="Open in browser"/>
-      <Button x:Name="VisualizeButton" Style="{StaticResource SmallButton}" Padding="12,6" Content="Visualize"/>
-      <Button x:Name="OpenLogButton" Style="{StaticResource SmallButton}" Padding="12,6" Content="Open log"/>
-      <Button x:Name="AddMonitorButton" Style="{StaticResource SmallButton}" Padding="12,6" Content="Add monitor..."/>
-      <Button x:Name="EditMonitorButton" Style="{StaticResource SmallButton}" Padding="12,6" Content="Edit"/>
-      <Button x:Name="ToggleMonitorButton" Style="{StaticResource SmallButton}" Padding="12,6" Content="Start / Stop"/>
-      <Button x:Name="DeleteMonitorButton" Style="{StaticResource SmallButton}" Padding="12,6" Content="Delete"/>
-      <Button x:Name="EmailConfigButton" Style="{StaticResource SmallButton}" Padding="12,6" Content="Email config"/>
-      <Button x:Name="ClearLogButton" Style="{StaticResource SmallButton}" Padding="12,6" Content="Clear log"/>
-      <Button x:Name="ArchiveLogButton" Style="{StaticResource SmallButton}" Padding="12,6" Content="Archive log"/>
+    <WrapPanel Grid.Row="3" Margin="0,12,0,0">
+      <StackPanel Orientation="Horizontal" Margin="0,0,24,0">
+        <Button x:Name="AddMonitorButton" Style="{StaticResource BarPrimaryButton}" Content="Add monitor..."/>
+        <Button x:Name="EditMonitorButton" Style="{StaticResource BarButton}" Content="Edit"/>
+        <Button x:Name="ToggleMonitorButton" Style="{StaticResource BarButton}" Content="Start / Stop"/>
+        <Button x:Name="DeleteMonitorButton" Style="{StaticResource BarButton}" Content="Delete"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Margin="0,0,24,0">
+        <Button x:Name="BrowserButton" Style="{StaticResource BarButton}" Content="Open in browser"/>
+        <Button x:Name="VisualizeButton" Style="{StaticResource BarButton}" Content="Visualize"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal">
+        <Button x:Name="OpenLogButton" Style="{StaticResource BarButton}" Content="Open log"/>
+        <Button x:Name="ClearLogButton" Style="{StaticResource BarButton}" Content="Clear log"/>
+        <Button x:Name="ArchiveLogButton" Style="{StaticResource BarButton}" Content="Archive log"/>
+        <Button x:Name="EmailConfigButton" Style="{StaticResource BarButton}" Content="Email settings"/>
+      </StackPanel>
     </WrapPanel>
   </Grid>
 '@
@@ -851,7 +864,7 @@ function Show-MonitorManagerWindow {
         $serviceRunning = Test-MonitorServiceRunning
         $serviceStatus = if ($serviceRunning) { Get-MonitorServiceStatus } else { $null }
         $controls['ServiceStatusText'].Text = if ($serviceRunning) { 'Running in the background service (tray icon). Monitors keep running after you close API Tester; changes here are picked up within a second.' } else { 'Monitors run while API Tester is open. Use "Run in background" to keep them running after you close it.' }
-        $controls['ServiceStatusText'].Foreground = if ($serviceRunning) { [System.Windows.Media.Brushes]::SeaGreen } else { ConvertTo-WpfBrush (ConvertTo-HexColor $script:Theme.MutedText) }
+        if ($serviceRunning) { $controls['ServiceStatusText'].Foreground = ConvertTo-WpfBrush (ConvertTo-ThemeColor '#15803D') } else { $controls['ServiceStatusText'].SetResourceReference([System.Windows.Controls.TextBlock]::ForegroundProperty, 'Muted') }
         $controls['StartServiceButton'].IsEnabled = -not $serviceRunning
         $controls['StopServiceButton'].IsEnabled = $serviceRunning
         $selectedId = if ($controls['MonitorGrid'].SelectedItem) { $controls['MonitorGrid'].SelectedItem.Item.Id } else { $null }

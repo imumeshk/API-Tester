@@ -161,20 +161,21 @@ function Get-WpfResourcesXaml {
 </Style>
 <Style TargetType="Menu"><Setter Property="Background" Value="Transparent"/></Style>
 <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
-  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Separator"><Border Height="1" Margin="8,4" Background="{StaticResource Border}"/></ControlTemplate></Setter.Value></Setter>
+  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Separator"><Border Height="8" Background="Transparent"/></ControlTemplate></Setter.Value></Setter>
 </Style>
 <Style TargetType="MenuItem">
   <Setter Property="Foreground" Value="{StaticResource Text}"/><Setter Property="Cursor" Value="Hand"/>
   <Setter Property="Template"><Setter.Value>
     <ControlTemplate TargetType="MenuItem">
-      <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="10,6" SnapsToDevicePixels="True">
+      <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="8,6,12,6" SnapsToDevicePixels="True">
         <Grid>
-          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-          <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
-          <TextBlock x:Name="Gesture" Grid.Column="1" Text="{TemplateBinding InputGestureText}" Margin="28,0,0,0" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock x:Name="Check" Width="18" Text="&#x2713;" FontWeight="Bold" Foreground="{StaticResource Primary}" VerticalAlignment="Center" Visibility="Hidden"/>
+          <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+          <TextBlock x:Name="Gesture" Grid.Column="2" Text="{TemplateBinding InputGestureText}" Margin="28,0,0,0" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
           <Popup x:Name="PART_Popup" Placement="Bottom" VerticalOffset="4" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade"
                  IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}">
-            <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="6" Padding="4" MinWidth="240">
+            <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="6" Padding="4" MinWidth="220">
               <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
             </Border>
           </Popup>
@@ -183,7 +184,15 @@ function Get-WpfResourcesXaml {
       <ControlTemplate.Triggers>
         <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Bd" Property="Background" Value="{StaticResource Soft}"/></Trigger>
         <Trigger Property="IsSubmenuOpen" Value="True"><Setter TargetName="Bd" Property="Background" Value="{StaticResource Soft}"/></Trigger>
-        <Trigger Property="Role" Value="TopLevelHeader"><Setter TargetName="Gesture" Property="Visibility" Value="Collapsed"/><Setter TargetName="Bd" Property="Padding" Value="12,6"/></Trigger>
+        <Trigger Property="IsChecked" Value="True"><Setter TargetName="Check" Property="Visibility" Value="Visible"/></Trigger>
+        <Trigger Property="Role" Value="SubmenuHeader">
+          <Setter TargetName="PART_Popup" Property="Placement" Value="Right"/><Setter TargetName="PART_Popup" Property="VerticalOffset" Value="-5"/>
+          <Setter TargetName="Gesture" Property="Text" Value="&#x203A;"/>
+        </Trigger>
+        <Trigger Property="Role" Value="TopLevelHeader">
+          <Setter TargetName="Gesture" Property="Visibility" Value="Collapsed"/><Setter TargetName="Check" Property="Visibility" Value="Collapsed"/>
+          <Setter TargetName="Bd" Property="Padding" Value="12,6"/>
+        </Trigger>
         <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Bd" Property="Opacity" Value="0.45"/></Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate>
@@ -197,6 +206,27 @@ function Get-WpfResourcesXaml {
       </Border>
     </ControlTemplate>
   </Setter.Value></Setter>
+</Style>
+<Style TargetType="ListBox">
+  <Setter Property="Background" Value="{StaticResource Input}"/><Setter Property="Foreground" Value="{StaticResource Text}"/>
+  <Setter Property="BorderBrush" Value="{StaticResource Border}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="3"/>
+</Style>
+<Style TargetType="ListBoxItem">
+  <Setter Property="Padding" Value="10,6"/><Setter Property="Margin" Value="0,1"/><Setter Property="Cursor" Value="Hand"/>
+  <Setter Property="Template"><Setter.Value>
+    <ControlTemplate TargetType="ListBoxItem">
+      <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True"><ContentPresenter/></Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="{StaticResource Soft}"/></Trigger>
+        <Trigger Property="IsSelected" Value="True"><Setter TargetName="Bd" Property="Background" Value="{StaticResource Soft}"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Foreground" Value="{StaticResource Primary}"/></Trigger>
+        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate>
+  </Setter.Value></Setter>
+</Style>
+<Style TargetType="RichTextBox">
+  <Setter Property="Background" Value="{StaticResource Input}"/><Setter Property="Foreground" Value="{StaticResource Text}"/>
+  <Setter Property="BorderBrush" Value="{StaticResource Border}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="8,6"/>
 </Style>
 <Style TargetType="DataGridCell">
   <Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="6,3"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -290,8 +320,16 @@ function Set-WpfThemeResources {
     param([Parameter(Mandatory = $true)]$Window)
     $colors = Get-ThemeBrushColors
     foreach ($key in $script:ThemeBrushKeys) {
-        $brush = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($colors[$key]))
-        $Window.Resources[$key] = $brush
+        $color = [System.Windows.Media.ColorConverter]::ConvertFromString($colors[$key])
+        $existing = $null
+        try { if ($Window.Resources.Contains($key)) { $existing = $Window.Resources[$key] } } catch { $existing = $null }
+        if ($existing -is [System.Windows.Media.SolidColorBrush] -and -not $existing.IsFrozen) {
+            # Same brush object, new colour: everything bound to it repaints at once.
+            $existing.Color = $color
+        } else {
+            $brush = New-Object System.Windows.Media.SolidColorBrush $color
+            $Window.Resources[$key] = $brush
+        }
     }
 }
 
@@ -314,10 +352,49 @@ function New-WpfWindowFromXaml {
     $Xaml = $Xaml.Replace('"@FORM@"', '"{DynamicResource Form}"').Replace('"@TEXT@"', '"{DynamicResource Text}"')
     $Xaml = [regex]::Replace($Xaml, '\{StaticResource (' + ($script:ThemeBrushKeys -join '|') + ')\}', '{DynamicResource $1}')
     $window = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader ([xml]$Xaml)))
+    foreach ($key in $script:ThemeBrushKeys) {
+        try { if ($window.Resources.Contains($key) -and $window.Resources[$key].IsFrozen) { $window.Resources[$key] = $window.Resources[$key].Clone() } } catch { }
+    }
     Register-WpfWindow -Window $window
     $controls = @{}
     foreach ($name in $ControlNames) { $controls[$name] = $window.FindName($name) }
     return @{ Window = $window; Controls = $controls }
+}
+
+# ---- Compiled helper types --------------------------------------------------------------------------------------------
+# Compiling C# takes seconds on Windows PowerShell 5.1, so each unit is compiled once into
+# %LOCALAPPDATA%\API-Tester\Cache (one DLL per PowerShell edition and source version) and simply loaded afterwards.
+function Import-CompiledTypes {
+    param([Parameter(Mandatory = $true)][string]$Name, [Parameter(Mandatory = $true)][string]$ProbeType, [Parameter(Mandatory = $true)][string]$Source, [string[]]$References = @())
+    if ($ProbeType -as [type]) { return $true }
+    $edition = if ($PSVersionTable.PSEdition -eq 'Core') { "core$($PSVersionTable.PSVersion.Major)" } else { 'desktop' }
+    $hasher = [System.Security.Cryptography.SHA256]::Create()
+    $hash = ([System.BitConverter]::ToString($hasher.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Source + '|' + ($References -join '|')))) -replace '-', '').Substring(0, 16)
+    $hasher.Dispose()
+    $compileArguments = @{ TypeDefinition = $Source; ErrorAction = 'Stop' }
+    if ($References.Count -gt 0) { $compileArguments['ReferencedAssemblies'] = $References }
+    $cacheDir = Join-Path -Path $env:LOCALAPPDATA -ChildPath 'API-Tester\Cache'
+    $assemblyPath = Join-Path -Path $cacheDir -ChildPath "$Name-$edition-$hash.dll"
+    if (Test-Path -LiteralPath $assemblyPath) {
+        try { Add-Type -Path $assemblyPath -ErrorAction Stop; if ($ProbeType -as [type]) { return $true } }
+        catch { Write-Log "Cached $Name could not be loaded, compiling again: $($_.Exception.Message)" -Level Debug }
+    }
+    try {
+        if (-not (Test-Path -LiteralPath $cacheDir)) { [void](New-Item -ItemType Directory -Path $cacheDir -Force -ErrorAction Stop) }
+        if (Test-Path -LiteralPath $assemblyPath) { Remove-Item -LiteralPath $assemblyPath -Force -ErrorAction Stop }
+        Add-Type @compileArguments -OutputAssembly $assemblyPath -OutputType Library
+        if (-not ($ProbeType -as [type])) { Add-Type -Path $assemblyPath -ErrorAction Stop }
+        # Older builds of this unit are no longer needed (files still in use by another window are skipped).
+        Get-ChildItem -LiteralPath $cacheDir -Filter "$Name-$edition-*.dll" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $assemblyPath } |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+        if ($ProbeType -as [type]) { return $true }
+    } catch {
+        Write-Log "Could not cache $Name ($($_.Exception.Message)); compiling in memory." -Level Debug
+    }
+    try {
+        if (-not ($ProbeType -as [type])) { Add-Type @compileArguments }
+        return [bool]($ProbeType -as [type])
+    } catch { Write-Log "Could not compile ${Name}: $($_.Exception.Message)" -Level Error; return $false }
 }
 
 # ---- Screen fitting ---------------------------------------------------------------------------------------------

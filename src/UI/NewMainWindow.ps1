@@ -17,13 +17,17 @@
 # the function that registered them has returned.
 
 function Show-MainWindow {
-    Import-Settings
-    Import-Globals
-    Import-Environments
-    Import-Collections
-    Import-Monitors
-    Import-RequestTemplates
-    if ($script:settings.EnableHistory) { Import-History }
+    # When the window is rebuilt (for example after a theme change) the data is already in memory.
+    $reopening = [bool]$script:isReopeningMainWindow
+    if (-not $reopening) {
+        Import-Settings
+        Import-Globals
+        Import-Environments
+        Import-Collections
+        Import-Monitors
+        Import-RequestTemplates
+        if ($script:settings.EnableHistory) { Import-History; Move-HistoryBodiesToFiles }
+    }
     $script:monitorJobs = @{}
     if (-not $script:cookieJar) { $script:cookieJar = New-Object System.Collections.ArrayList }
 
@@ -87,6 +91,7 @@ function Show-MainWindow {
           <ComboBox x:Name="EnvironmentBox" Width="190" Height="34" VerticalContentAlignment="Center"/>
           <Button x:Name="ManageEnvironmentsButton" Height="34" Margin="8,0,0,0" Padding="14,0" Content="Manage..." ToolTip="Add, edit and remove environments"/>
           <Button x:Name="SettingsButton" Height="34" Margin="8,0,0,0" Padding="14,0" Content="&#x2699; Settings" ToolTip="Application settings"/>
+          <Button x:Name="ThemeToggleButton" Width="38" Height="34" Margin="8,0,0,0" Padding="0" FontFamily="Segoe UI Symbol" FontSize="16" Content="&#x263E;" ToolTip="Switch to the dark theme"/>
         </StackPanel>
       </Grid>
     </Border>
@@ -425,27 +430,41 @@ function Show-MainWindow {
           </TabItem>
         </TabControl>
 
-        <GridSplitter x:Name="WorkspaceSplitter" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" HorizontalAlignment="Stretch" VerticalAlignment="Center" Height="4" Background="{StaticResource Border}"/>
+        <GridSplitter x:Name="WorkspaceSplitter" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" HorizontalAlignment="Stretch" VerticalAlignment="Center" Height="4" Background="Transparent" ToolTip="Drag to resize"/>
 
         <!-- Response -->
-        <Border x:Name="ResponsePanel" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="6" ToolTip="Right-click the toolbar for docking options">
+        <Border x:Name="ResponsePanel" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="6" >
           <Grid>
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-            <WrapPanel x:Name="ResponseToolbar" Margin="12,8,12,4" Background="Transparent">
-              <TextBlock Style="{StaticResource SectionLabel}" Text="RESPONSE" VerticalAlignment="Center" Margin="0,0,12,0"/>
-              <Border x:Name="StatusBadge" CornerRadius="10" Padding="10,2" Background="#9AA7BD" Visibility="Collapsed" Margin="0,0,12,0">
-                <TextBlock x:Name="ResponseStatusText" Foreground="White" FontWeight="SemiBold"/>
-              </Border>
-              <TextBlock x:Name="ResponseTimeText" VerticalAlignment="Center" Foreground="{StaticResource Muted}" Margin="0,0,12,0"/>
-              <TextBlock x:Name="ResponseSizeText" VerticalAlignment="Center" Foreground="{StaticResource Muted}" Margin="0,0,16,0"/>
-              <Button x:Name="PrettifyButton" Style="{StaticResource SmallButton}" Content="Prettify"/>
-              <Button x:Name="SaveResponseButton" Style="{StaticResource SmallButton}" Content="Save..."/>
-              <Button x:Name="CopyResponseButton" Style="{StaticResource SmallButton}" Content="Copy"/>
-              <Button x:Name="GoToLineButton" Style="{StaticResource SmallButton}" Content="Go to line..."/>
-              <Button x:Name="FindButton" Style="{StaticResource SmallButton}" Content="Find"/>
-              <Button x:Name="ExtractButton" Style="{StaticResource SmallButton}" Content="Extract variable"/>
-              <CheckBox x:Name="WrapBox" Content="Wrap" VerticalAlignment="Center" Margin="4,0,12,0"/>
-            </WrapPanel>
+            <Grid x:Name="ResponseToolbar" Margin="12,8,10,6" Background="Transparent">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center" ClipToBounds="True">
+                <TextBlock Style="{StaticResource SectionLabel}" Text="RESPONSE" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <Border x:Name="StatusBadge" CornerRadius="10" Padding="10,2" Background="#9AA7BD" Visibility="Collapsed" Margin="0,0,10,0">
+                  <TextBlock x:Name="ResponseStatusText" Foreground="White" FontWeight="SemiBold"/>
+                </Border>
+                <TextBlock x:Name="ResponseTimeText" VerticalAlignment="Center" Foreground="{StaticResource Muted}" Margin="0,0,10,0"/>
+                <TextBlock x:Name="ResponseSizeText" VerticalAlignment="Center" Foreground="{StaticResource Muted}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                <Button x:Name="PrettifyButton" Style="{StaticResource SmallButton}" Height="30" Content="Prettify" ToolTip="Format the response body"/>
+                <Button x:Name="CopyResponseButton" Style="{StaticResource SmallButton}" Height="30" Content="Copy" ToolTip="Copy the response body"/>
+                <Button x:Name="SaveResponseButton" Style="{StaticResource SmallButton}" Height="30" Content="Save..." ToolTip="Save the response to a file"/>
+                <Button x:Name="FindButton" Style="{StaticResource SmallButton}" Height="30" Content="Find" ToolTip="Find in the response"/>
+                <Button x:Name="ResponseMoreButton" Style="{StaticResource SmallButton}" Height="30" Width="36" Padding="0" Margin="0" Content="&#x22EF;" FontSize="16" ToolTip="More: go to line, extract variable, wrap, docking">
+                  <Button.ContextMenu>
+                    <ContextMenu>
+                      <MenuItem x:Name="GoToLineButton" Header="Go to line..."/>
+                      <MenuItem x:Name="ExtractButton" Header="Extract variable..."/>
+                      <Separator/>
+                      <MenuItem x:Name="WrapBox" Header="Wrap long lines" IsCheckable="True"/>
+                      <Separator/>
+                      <MenuItem x:Name="DockMenu" Header="Response position"/>
+                    </ContextMenu>
+                  </Button.ContextMenu>
+                </Button>
+              </StackPanel>
+            </Grid>
             <Grid x:Name="FindBar" Grid.Row="1" Margin="12,0,12,6" Visibility="Collapsed">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
               <TextBox x:Name="FindBox" Height="28" VerticalContentAlignment="Center" ToolTip="Enter = next, Shift+Enter = previous, Esc = close"/>
@@ -513,13 +532,14 @@ function Show-MainWindow {
               <TabItem x:Name="TabConsole" Header="Console">
                 <Grid Margin="4"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                   <TextBox x:Name="ConsoleOutputBox" Style="{StaticResource CodeBox}" IsReadOnly="True" Background="Black" Foreground="White" FontSize="12"/>
-                  <DockPanel Grid.Row="1" Margin="0,6,0,0">
-                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0,0,0">
-                      <Button x:Name="ConsoleRunButton" Style="{StaticResource PrimaryButton}" Padding="14,4" Margin="0,0,6,0" Content="Run"/>
-                      <Button x:Name="ConsoleClearButton" Padding="14,4" Content="Clear"/>
+                  <Grid Grid.Row="1" Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBox x:Name="ConsoleInputBox" Height="68" Style="{StaticResource CodeBox}" ToolTip="Ctrl+Enter or Shift+Enter runs. Prefix: python: js: php: ruby: go: bat: bash:"/>
+                    <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Top">
+                      <Button x:Name="ConsoleRunButton" Style="{StaticResource PrimaryButton}" Width="86" Height="32" Padding="0" Content="Run" ToolTip="Run (Ctrl+Enter)"/>
+                      <Button x:Name="ConsoleClearButton" Width="86" Height="32" Padding="0" Margin="0,4,0,0" Content="Clear"/>
                     </StackPanel>
-                    <TextBox x:Name="ConsoleInputBox" Height="64" Style="{StaticResource CodeBox}" ToolTip="Ctrl+Enter or Shift+Enter runs. Prefix: python: js: php: ruby: go: bat: bash:"/>
-                  </DockPanel>
+                  </Grid>
                 </Grid>
               </TabItem>
               <TabItem x:Name="TabPreview" Header="Preview" Visibility="Collapsed">
@@ -537,37 +557,43 @@ function Show-MainWindow {
 </Window>
 '@
     $controlNames = @(
-    'StatusText', 'EnvironmentPanel', 'EnvironmentBox', 'ManageEnvironmentsButton', 'SettingsButton', 'MainMenu', 'MenuImportCurl',
-    'MenuImportPostman', 'MenuImportWorkspace', 'MenuExportWorkspace', 'MenuResetLayout', 'MenuSettings', 'MenuExit', 'MenuEnvironments',
-    'MenuGlobalVariables', 'MenuTemplates', 'MenuProxy', 'MenuCookieJar', 'MenuJwt', 'MenuReport', 'MenuWebSocket', 'MenuGrpc', 'MenuLoadTester',
-    'MenuMonitorManager', 'MenuMonitorDashboard', 'MenuMonitorBrowser', 'MenuAbout', 'MenuShortcuts', 'RequestTabsStrip', 'NewTabButton',
-    'MethodBox', 'UrlEditorHost', 'UrlScroll', 'UrlHighlight', 'UrlBox', 'SendButton', 'StopButton', 'RepeatButton', 'SaveRequestButton',
-    'TemplatesButton', 'SidebarColumn', 'SidebarSplitterColumn', 'SidebarTabs', 'TabCollections', 'CollectionFilterBox', 'CollectionsTree',
-    'NewCollectionButton', 'ImportCollectionsButton', 'ExportCollectionsButton', 'TabHistory', 'HistoryFilterBox', 'HistoryEnvironmentBox',
-    'HistoryList', 'ClearHistoryButton', 'ExportHistoryButton', 'SidebarSplitter', 'WorkspaceGrid', 'RequestTabs', 'TabParams', 'AddParamButton',
-    'RemoveParamButton', 'ParamsGrid', 'TabHeaders', 'HeadersEditorHost', 'HeadersScroll', 'HeadersHighlight', 'HeadersBox', 'TabBody',
-    'BodyTypeBox', 'BeautifyButton', 'BodyOptionsHint', 'BodyEditorHost', 'BodyGutterScroll', 'BodyGutter', 'BodyScroll', 'BodyHighlight', 'BodyBox',
-    'MultipartPanel', 'AddFieldButton', 'AddFileButton', 'RemoveRowButton', 'ClearRowsButton', 'MultipartGrid', 'GraphQLPanel', 'GqlQueryBox',
-    'GqlVarsBox', 'TabAuth', 'AuthTypeBox', 'InheritNote', 'BearerPanel', 'BearerTokenBox', 'BasicPanel', 'BasicUserBox', 'BasicPasswordBox',
-    'ApiKeyPanel', 'ApiKeyNameBox', 'ApiKeyValueBox', 'ApiKeyLocationBox', 'OAuthPanel', 'OAuthClientIdBox', 'OAuthClientSecretBox',
-    'OAuthAuthEndpointBox', 'OAuthTokenEndpointBox', 'OAuthRedirectUriBox', 'OAuthScopeBox', 'OAuthAccessTokenBox', 'OAuthRefreshTokenBox',
-    'OAuthExpiresInBox', 'OAuthClientCredentialsButton', 'OAuthAuthorizationCodeButton', 'OAuthRefreshButton', 'OAuthStatusText', 'CertPanel',
-    'CertSourceBox', 'CertPathPanel', 'CertPathBox', 'CertBrowseButton', 'CertPasswordPanel', 'CertPasswordBox', 'CertThumbPanel', 'CertThumbBox',
-    'TabPreRequest', 'PreRequestBox', 'TabTests', 'TestSnippetsButton', 'TestsBox', 'TabOptions', 'OutputFileBox', 'OutputFileBrowseButton',
-    'OutputFileClearButton', 'MultipartOptionsPanel', 'MultipartOptionsNote', 'IncludeFilenameBox', 'IncludeContentTypeBox', 'OutputFormatBox',
-    'WorkspaceSplitter', 'ResponsePanel', 'ResponseToolbar', 'StatusBadge', 'ResponseStatusText', 'ResponseTimeText', 'ResponseSizeText',
-    'PrettifyButton', 'SaveResponseButton', 'CopyResponseButton', 'GoToLineButton', 'FindButton', 'ExtractButton', 'WrapBox', 'FindBar', 'FindBox',
-    'FindPrevButton', 'FindNextButton', 'FindCountText', 'FindCloseButton', 'ResponseTabs', 'TabResponse', 'ResponseBodyEditorHost',
-    'ResponseBodyGutterScroll', 'ResponseBodyGutter', 'ResponseBodyScroll', 'ResponseBodyHighlight', 'ResponseBodyBox', 'ExtractPanel',
-    'ExtractSourceBox', 'ExtractModeBox', 'ExtractPathBox', 'ExtractNameBox', 'ExtractScopeBox', 'ExtractExistingBox', 'ExtractRunButton',
-    'ExtractStatusText', 'TabResponseHeaders', 'ResponseHeadersBox', 'TabJsonTree', 'JsonSearchBox', 'JsonSearchNextButton', 'JsonExpandButton',
-    'JsonCollapseButton', 'JsonCopyPathButton', 'JsonStatusText', 'JsonTree', 'TabCode', 'CodeLanguageBox', 'CodeRefreshButton', 'CodeCopyButton',
-    'CodeBox', 'TabConsole', 'ConsoleOutputBox', 'ConsoleRunButton', 'ConsoleClearButton', 'ConsoleInputBox', 'TabPreview', 'PreviewImage',
-    'PreviewBrowser', 'TabTestResults', 'TestResultsList'
+    'StatusText', 'EnvironmentPanel', 'EnvironmentBox', 'ManageEnvironmentsButton', 'SettingsButton', 'ThemeToggleButton', 'MainMenu',
+    'MenuImportCurl', 'MenuImportPostman', 'MenuImportWorkspace', 'MenuExportWorkspace', 'MenuResetLayout', 'MenuSettings', 'MenuExit',
+    'MenuEnvironments', 'MenuGlobalVariables', 'MenuTemplates', 'MenuProxy', 'MenuCookieJar', 'MenuJwt', 'MenuReport', 'MenuWebSocket', 'MenuGrpc',
+    'MenuLoadTester', 'MenuMonitorManager', 'MenuMonitorDashboard', 'MenuMonitorBrowser', 'MenuAbout', 'MenuShortcuts', 'RequestTabsStrip',
+    'NewTabButton', 'MethodBox', 'UrlEditorHost', 'UrlScroll', 'UrlHighlight', 'UrlBox', 'SendButton', 'StopButton', 'RepeatButton',
+    'SaveRequestButton', 'TemplatesButton', 'SidebarColumn', 'SidebarSplitterColumn', 'SidebarTabs', 'TabCollections', 'CollectionFilterBox',
+    'CollectionsTree', 'NewCollectionButton', 'ImportCollectionsButton', 'ExportCollectionsButton', 'TabHistory', 'HistoryFilterBox',
+    'HistoryEnvironmentBox', 'HistoryList', 'ClearHistoryButton', 'ExportHistoryButton', 'SidebarSplitter', 'WorkspaceGrid', 'RequestTabs',
+    'TabParams', 'AddParamButton', 'RemoveParamButton', 'ParamsGrid', 'TabHeaders', 'HeadersEditorHost', 'HeadersScroll', 'HeadersHighlight',
+    'HeadersBox', 'TabBody', 'BodyTypeBox', 'BeautifyButton', 'BodyOptionsHint', 'BodyEditorHost', 'BodyGutterScroll', 'BodyGutter', 'BodyScroll',
+    'BodyHighlight', 'BodyBox', 'MultipartPanel', 'AddFieldButton', 'AddFileButton', 'RemoveRowButton', 'ClearRowsButton', 'MultipartGrid',
+    'GraphQLPanel', 'GqlQueryBox', 'GqlVarsBox', 'TabAuth', 'AuthTypeBox', 'InheritNote', 'BearerPanel', 'BearerTokenBox', 'BasicPanel',
+    'BasicUserBox', 'BasicPasswordBox', 'ApiKeyPanel', 'ApiKeyNameBox', 'ApiKeyValueBox', 'ApiKeyLocationBox', 'OAuthPanel', 'OAuthClientIdBox',
+    'OAuthClientSecretBox', 'OAuthAuthEndpointBox', 'OAuthTokenEndpointBox', 'OAuthRedirectUriBox', 'OAuthScopeBox', 'OAuthAccessTokenBox',
+    'OAuthRefreshTokenBox', 'OAuthExpiresInBox', 'OAuthClientCredentialsButton', 'OAuthAuthorizationCodeButton', 'OAuthRefreshButton',
+    'OAuthStatusText', 'CertPanel', 'CertSourceBox', 'CertPathPanel', 'CertPathBox', 'CertBrowseButton', 'CertPasswordPanel', 'CertPasswordBox',
+    'CertThumbPanel', 'CertThumbBox', 'TabPreRequest', 'PreRequestBox', 'TabTests', 'TestSnippetsButton', 'TestsBox', 'TabOptions', 'OutputFileBox',
+    'OutputFileBrowseButton', 'OutputFileClearButton', 'MultipartOptionsPanel', 'MultipartOptionsNote', 'IncludeFilenameBox',
+    'IncludeContentTypeBox', 'OutputFormatBox', 'WorkspaceSplitter', 'ResponsePanel', 'ResponseToolbar', 'StatusBadge', 'ResponseStatusText',
+    'ResponseTimeText', 'ResponseSizeText', 'PrettifyButton', 'CopyResponseButton', 'SaveResponseButton', 'FindButton', 'ResponseMoreButton',
+    'GoToLineButton', 'ExtractButton', 'WrapBox', 'DockMenu', 'FindBar', 'FindBox', 'FindPrevButton', 'FindNextButton', 'FindCountText',
+    'FindCloseButton', 'ResponseTabs', 'TabResponse', 'ResponseBodyEditorHost', 'ResponseBodyGutterScroll', 'ResponseBodyGutter',
+    'ResponseBodyScroll', 'ResponseBodyHighlight', 'ResponseBodyBox', 'ExtractPanel', 'ExtractSourceBox', 'ExtractModeBox', 'ExtractPathBox',
+    'ExtractNameBox', 'ExtractScopeBox', 'ExtractExistingBox', 'ExtractRunButton', 'ExtractStatusText', 'TabResponseHeaders', 'ResponseHeadersBox',
+    'TabJsonTree', 'JsonSearchBox', 'JsonSearchNextButton', 'JsonExpandButton', 'JsonCollapseButton', 'JsonCopyPathButton', 'JsonStatusText',
+    'JsonTree', 'TabCode', 'CodeLanguageBox', 'CodeRefreshButton', 'CodeCopyButton', 'CodeBox', 'TabConsole', 'ConsoleOutputBox', 'ConsoleInputBox',
+    'ConsoleRunButton', 'ConsoleClearButton', 'TabPreview', 'PreviewImage', 'PreviewBrowser', 'TabTestResults', 'TestResultsList'
     )
+    $script:mainWindowXaml = $xaml
+    $script:mainWindowControlNames = $controlNames
     $uiBundle = New-WpfWindowFromXaml -Xaml $xaml -ControlNames $controlNames
     $window = $uiBundle.Window
     $script:ui = $uiBundle.Controls
+    # Items inside a drop-down menu are not always found by name; look them up in the menu itself.
+    foreach ($menuItem in @($script:ui.ResponseMoreButton.ContextMenu.Items)) {
+        if ($menuItem -is [System.Windows.FrameworkElement] -and $menuItem.Name -and -not $script:ui[$menuItem.Name]) { $script:ui[$menuItem.Name] = $menuItem }
+    }
     $script:MainWindowContext = @{ Window = $window; Controls = $script:ui }
     $window.Title = "API Tester v$($script:AppVersion)"
 
@@ -576,6 +602,10 @@ function Show-MainWindow {
     Register-SidebarHandlers
     Register-MainMenuHandlers -Controls $script:ui
 
+    if ($reopening -and $script:reopenState) {
+        $script:requestTabs = @($script:reopenState.Tabs)
+        $script:activeRequestTabId = $script:reopenState.ActiveTabId
+    } else {
     Import-RequestTabs
     if ($OpenRequestFile) {
         # Secondary window ("Open in new window"): just this request; it does not run monitors or save the main tabs.
@@ -593,13 +623,13 @@ function Show-MainWindow {
         $script:activeRequestTabId = $script:requestTabs[0].Id
     }
     if (-not $script:isSecondaryWindow) { Restore-DraftSession }
+    }
     Update-RequestTabsStrip
     Set-EditorState -State (Get-ActiveRequestTab)
     Update-CollectionsTree
     Update-HistoryList
     Update-UiFromSettings
     Set-UiStatus 'Ready'
-    if (-not $script:isSecondaryWindow) { Start-MonitorEngine }
 
     $autoSaveTimer = New-Object System.Windows.Threading.DispatcherTimer
     $autoSaveTimer.Interval = [TimeSpan]::FromSeconds(2)
@@ -620,14 +650,15 @@ function Show-MainWindow {
 
     $window.Add_Closing({
         param($sender, $closingArgs)
+        $reloading = [bool]$script:isReopeningMainWindow
         $runningCount = @($script:pendingRequests.Keys).Count
-        if ($runningCount -gt 0) {
+        if ($runningCount -gt 0 -and -not $reloading) {
             $answer = [System.Windows.MessageBox]::Show($sender, "$runningCount request(s) are still running. Close the application and cancel them?", 'Requests running', 'YesNo', 'Warning')
             if ($answer -ne 'Yes') { $closingArgs.Cancel = $true; return }
         }
         $script:startMonitorServiceOnExit = $false
         $activeMonitors = @($script:monitors | Where-Object { $_ -and $_.Status -eq 'Running' }).Count
-        if (-not $script:isSecondaryWindow -and $activeMonitors -gt 0 -and -not (Test-MonitorServiceRunning -NoCache)) {
+        if (-not $reloading -and -not $script:isSecondaryWindow -and $activeMonitors -gt 0 -and -not (Test-MonitorServiceRunning -NoCache)) {
             $answer = [System.Windows.MessageBox]::Show($sender, "$activeMonitors monitor(s) are running.`n`nKeep them running in the background after API Tester closes?`n`nYes - keep running (tray icon)`nNo - stop them`nCancel - don't close", 'Monitors', 'YesNoCancel', 'Question')
             if ($answer -eq 'Cancel') { $closingArgs.Cancel = $true; return }
             $script:startMonitorServiceOnExit = ($answer -eq 'Yes')
@@ -635,8 +666,10 @@ function Show-MainWindow {
         try { $script:autoSaveTimer.Stop() } catch { }
         try { Stop-MonitorEngine } catch { }
         if ($script:startMonitorServiceOnExit) { try { Save-Monitors; [void](Start-MonitorService) } catch { Write-Log "Could not start background monitors: $($_.Exception.Message)" -Level Error } }
-        try { if ($script:requestPollTimer) { $script:requestPollTimer.Stop() } } catch { }
-        foreach ($pending in @($script:pendingRequests.Values)) { try { $pending.State.Cancellation.Cancel() } catch { } }
+        if (-not $reloading) {
+            try { if ($script:requestPollTimer) { $script:requestPollTimer.Stop() } } catch { }
+            foreach ($pending in @($script:pendingRequests.Values)) { try { $pending.State.Cancellation.Cancel() } catch { } }
+        }
         try { Save-ActiveRequestTab; Save-RequestTabs } catch { }
         if (-not $script:isSecondaryWindow) { try { if (Test-Path $draftsFilePath) { Remove-Item $draftsFilePath -Force -ErrorAction SilentlyContinue } } catch { } }
         try { Close-FloatingPanels } catch { }
@@ -644,9 +677,18 @@ function Show-MainWindow {
         try { Save-Settings } catch { }
     })
     $window.Add_ContentRendered({
+        # Work that is not needed to show the window starts once it is on screen.
+        if (-not $script:isSecondaryWindow) {
+            [void][System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [System.Action]{ Invoke-UiGuard { Start-MonitorEngine } 'Monitors' })
+        }
         $script:ui.UrlBox.Focus() | Out-Null
         if ($script:startupDockState -eq 'Undocked') { Invoke-UiGuard { Set-ResponseDock -Dock 'Undocked' } 'Undock' }
         if ($script:settings.HistoryUndocked) { Invoke-UiGuard { Set-SidebarDocked -Docked $false } 'Undock' }
+        if ($script:isReopeningMainWindow) {
+            $script:isReopeningMainWindow = $false
+            Update-SendButtons
+            Set-UiStatus "Theme changed to $($script:settings.AppTheme)."
+        }
         if (-not $script:isSecondaryWindow) { Invoke-UiGuard { Start-StartupUpdateCheck } 'Update check' }
     })
 
@@ -691,7 +733,8 @@ function Initialize-MainWindowControls {
     Register-CodeEditor -Name 'ResponseBody' -LanguageHint { if ($script:lastResult) { [string]$script:lastResult.ContentType } else { '' } }
     $script:editorDirty = $false
     $script:isSwitchingRequestTab = $false
-    $script:pendingRequests = @{}
+    # Requests keep running while the window is rebuilt; their results appear in the new window.
+    if (-not $script:isReopeningMainWindow -or -not $script:pendingRequests) { $script:pendingRequests = @{} }
     $script:lastResult = $null
 
     Update-EnvironmentChoices
@@ -705,11 +748,21 @@ function Initialize-MainWindowControls {
 }
 
 function Register-MainWindowHandlers {
+    param([switch]$ContentOnly)
     $controls = $script:ui
 
     # --- header / environments ---
     $controls.EnvironmentBox.Add_SelectionChanged({ Invoke-UiGuard { Select-Environment } 'Environment' })
     $controls.ManageEnvironmentsButton.Add_Click({ Invoke-UiGuard { Show-EnvironmentManager } 'Environments' })
+    $controls.ThemeToggleButton.Add_Click({ Invoke-UiGuard { Switch-AppTheme } 'Theme' })
+    Update-ThemeToggleButton
+    $controls.ResponseMoreButton.Add_Click({
+        param($sender)
+        $sender.ContextMenu.PlacementTarget = $sender
+        $sender.ContextMenu.Placement = [System.Windows.Controls.Primitives.PlacementMode]::Bottom
+        $sender.ContextMenu.IsOpen = $true
+    })
+    Initialize-DockMenu -MenuItem $controls.DockMenu
     $controls.SettingsButton.Add_Click({ Invoke-UiGuard { Invoke-MenuSettings } 'Settings' })
 
     # --- request tabs strip ---
@@ -876,18 +929,9 @@ function Register-MainWindowHandlers {
     })
 
     # --- window-level shortcuts ---
-    $script:MainWindowContext.Window.Add_PreviewKeyDown({
-        param($sender, $keyArgs)
-        $ctrl = [System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control
-        $shift = [System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Shift
-        if (-not $ctrl) { return }
-        $key = $keyArgs.Key
-        if ($key -eq [System.Windows.Input.Key]::Return -and $shift) { $keyArgs.Handled = $true; $script:ui.ResponseTabs.SelectedItem = $script:ui.TabConsole; Invoke-UiGuard { Invoke-ConsoleRun } 'Console' }
-        elseif ($key -eq [System.Windows.Input.Key]::Return -and $keyArgs.OriginalSource -ne $script:ui.ConsoleInputBox) { $keyArgs.Handled = $true; Invoke-UiGuard { Invoke-SendRequest } 'Send' }
-        elseif ($key -eq [System.Windows.Input.Key]::T) { $keyArgs.Handled = $true; Invoke-UiGuard { [void](Add-RequestTab) } 'New tab' }
-        elseif ($key -eq [System.Windows.Input.Key]::W) { $keyArgs.Handled = $true; Invoke-UiGuard { Remove-ActiveRequestTab } 'Close tab' }
-        elseif ($key -eq [System.Windows.Input.Key]::F) { $keyArgs.Handled = $true; Invoke-UiGuard { Show-FindBar } 'Find' }
-    })
+    # Keyboard shortcuts come from a table that can be customised (Help -> Keyboard Shortcuts...).
+    Update-ShortcutLookup
+    if (-not $ContentOnly) { $script:MainWindowContext.Window.Add_PreviewKeyDown({ param($sender, $keyArgs) Invoke-ShortcutKey -KeyArgs $keyArgs }) }
 }
 
 # Sizes the main window for the screen. First launch: up to 1440 x 900, never larger than the work area (and maximised
@@ -930,6 +974,81 @@ function Save-MainWindowBounds {
     if ($bounds.IsEmpty -or $bounds.Width -lt 400) { return }
     $script:settings.WindowBounds = @{ Left = [Math]::Round($bounds.Left); Top = [Math]::Round($bounds.Top); Width = [Math]::Round($bounds.Width); Height = [Math]::Round($bounds.Height)
         Maximized = ($Window.WindowState -eq [System.Windows.WindowState]::Maximized) }
+}
+
+# Theme fallback without closing the window: the controls are built again from the same XAML in the current theme
+# and swapped into the existing window. The window object stays, so running requests, timers, monitors, the tray icon
+# and the window position are untouched; tabs, responses and docking are restored on the new controls.
+function Update-MainWindowContent {
+    $window = Get-MainWindow
+    if (-not $window -or -not $script:mainWindowXaml) { throw 'The main window layout is not available.' }
+    Save-ActiveRequestTab
+    $dockState = [string]$script:settings.ResponseDockState
+    $sidebarUndocked = [bool]$script:settings.HistoryUndocked
+    Close-FloatingPanels
+    $script:settings.ResponseDockState = $dockState
+
+    $bundle = New-WpfWindowFromXaml -Xaml $script:mainWindowXaml -ControlNames $script:mainWindowControlNames
+    $fresh = $bundle.Window
+    [void]$script:openWpfWindows.Remove($fresh)
+    $content = $fresh.Content
+    $resources = $fresh.Resources
+    $fresh.Content = $null
+    $fresh.Resources = New-Object System.Windows.ResourceDictionary
+    $window.Resources = $resources
+    $window.Content = $content
+    $window.SetResourceReference([System.Windows.Window]::BackgroundProperty, 'Form')
+    $window.SetResourceReference([System.Windows.Window]::ForegroundProperty, 'Text')
+
+    $script:ui = $bundle.Controls
+    foreach ($menuItem in @($script:ui.ResponseMoreButton.ContextMenu.Items)) {
+        if ($menuItem -is [System.Windows.FrameworkElement] -and $menuItem.Name -and -not $script:ui[$menuItem.Name]) { $script:ui[$menuItem.Name] = $menuItem }
+    }
+    $script:MainWindowContext.Controls = $script:ui
+
+    # Same set-up as at start-up, without the window-level handlers (they are still registered on this window).
+    $script:isReopeningMainWindow = $true
+    try {
+        [void](Initialize-MainWindowControls)
+        [void](Register-MainWindowHandlers -ContentOnly)
+        [void](Register-SidebarHandlers)
+        [void](Register-MainMenuHandlers -Controls $script:ui)
+        [void](Update-RequestTabsStrip)
+        [void](Set-EditorState -State (Get-ActiveRequestTab))
+        [void](Update-CollectionsTree)
+        [void](Update-HistoryList)
+        [void](Update-UiFromSettings)
+        [void](Update-SendButtons)
+        if ($dockState -eq 'Undocked') { [void](Set-ResponseDock -Dock 'Undocked') }
+        if ($sidebarUndocked) { [void](Set-SidebarDocked -Docked $false) }
+    } finally { $script:isReopeningMainWindow = $false }
+}
+
+# Called after a theme change: nothing to do when the in-place recolouring worked; otherwise the controls are rebuilt
+# inside the open window. Only if that fails too is the whole window reopened - and never while a request is running.
+function Complete-ThemeSwitch {
+    if ($script:themeAppliedLive) { return }
+    try {
+        Update-MainWindowContent
+        $script:themeAppliedLive = $true
+        Set-UiStatus "Theme changed to $($script:settings.AppTheme)."
+        return
+    } catch { Write-Log "Rebuilding the window content for the theme failed: $($_.Exception.Message)" -Level Error }
+    if (@($script:pendingRequests.Keys).Count -eq 0) { Restart-MainWindow; return }
+    $script:themeReloadPending = $true
+    Set-UiStatus 'The new theme will be applied as soon as the running request(s) have finished.'
+}
+
+# Last resort for a theme change: closes and reopens the main window. Tabs, responses, running
+# requests, window position and docking are kept; monitors restart once the new window is shown.
+function Restart-MainWindow {
+    $window = Get-MainWindow
+    if (-not $window) { return }
+    Save-ActiveRequestTab
+    $script:reopenState = @{ Tabs = @($script:requestTabs); ActiveTabId = $script:activeRequestTabId }
+    $script:isReopeningMainWindow = $true
+    $script:reopenMainWindow = $true
+    $window.Close()
 }
 
 # Runs an action; any error is shown in the header pill and written to the application log instead of crashing the window.

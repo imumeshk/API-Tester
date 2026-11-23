@@ -5,71 +5,99 @@
 # ------------------------------------------------------------------------------------------------
 
 function Show-SettingsDialog {
-    $checkGroups = @(
-        @{ Title = 'UI & panel visibility'; Items = @(
-            @('ShowEnvironmentPanel', 'Environment panel'), @('ShowHistory', 'History panel'), @('ShowRequestHeadersTab', 'Request headers tab'),
-            @('ShowAuthTab', 'Authentication tab'), @('ShowPreRequestTab', 'Pre-request script tab'), @('ShowTestsTab', 'Tests tab'),
-            @('ShowTestResultsTab', 'Test results tab'), @('ShowResponse', 'Response panel'), @('ShowJsonTreeTab', 'JSON tree tab'),
-            @('ShowResponseHeaders', 'Response headers tab'), @('ShowCurl', 'Code snippets tab'), @('ShowConsoleTab', 'Console tab')) },
-        @{ Title = 'Configuration'; Items = @(
-            @('EnableLogs', 'Enable logging'), @('EnableHistory', 'Enable history tracking'), @('AutoRunHistory', 'Auto-run on history double-click'),
-            @('EnableAllMethods', 'Allow all request methods'), @('IgnoreSslErrors', 'Ignore SSL errors'), @('EnablePostmanImport', 'Enable Postman import'),
-            @('EnableCurlImport', 'Enable cURL import'), @('EnableRepeatRequest', 'Enable repeat request'), @('RestoreRequestTabs', 'Restore request tabs from the last session'),
-            @('HistorySaveResponses', 'Save responses in history'), @('CheckForUpdatesOnStartup', 'Check for updates at start-up')) }
-    )
-    $checkKeys = @($checkGroups | ForEach-Object { $_.Items } | ForEach-Object { $_[0] }) + @('AutoSaveToFile', 'AutoRenameFile', 'EnableAutoRenamePrefix')
-
-    $groupXaml = foreach ($group in $checkGroups) {
-        # Text is XML-escaped: a raw '&' (as in "UI & panel visibility") makes the XAML invalid.
-        $boxes = foreach ($item in $group.Items) { "<CheckBox x:Name=`"Chk$($item[0])`" Content=`"$([System.Security.SecurityElement]::Escape($item[1]))`" Width=`"235`" Margin=`"0,4,8,4`"/>" }
-        "<Border Background=`"{StaticResource Surface}`" BorderBrush=`"{StaticResource Border}`" BorderThickness=`"1`" CornerRadius=`"8`" Padding=`"14,10`" Margin=`"0,0,0,12`"><StackPanel><TextBlock Style=`"{StaticResource SectionLabel}`" Text=`"$([System.Security.SecurityElement]::Escape($group.Title.ToUpper()))`"/><WrapPanel Margin=`"0,6,0,0`">$($boxes -join '')</WrapPanel></StackPanel></Border>"
+    # Every check box: key -> label. They are placed on the tabs below; all keys are loaded and saved further down.
+    $checkOptions = [ordered]@{
+        ShowEnvironmentPanel     = 'Environment selector in the header'
+        ShowHistory              = 'History panel'
+        ShowResponse             = 'Response panel'
+        ShowRequestHeadersTab    = 'Headers'
+        ShowAuthTab              = 'Auth'
+        ShowPreRequestTab        = 'Pre-request'
+        ShowTestsTab             = 'Tests'
+        ShowResponseHeaders      = 'Response headers'
+        ShowJsonTreeTab          = 'JSON tree'
+        ShowCurl                 = 'Code snippets'
+        ShowConsoleTab           = 'Console'
+        ShowTestResultsTab       = 'Test results'
+        EnableLogs               = 'Write a log file'
+        EnableHistory            = 'Keep a history of sent requests'
+        AutoRunHistory           = 'Send the request again when a history entry is double-clicked'
+        HistorySaveResponses     = 'Save the responses with the history (view and compare them offline)'
+        EnableAllMethods         = 'Allow every request method, not only the common ones'
+        IgnoreSslErrors          = 'Ignore SSL certificate errors (only for test servers)'
+        EnablePostmanImport      = 'Postman / Insomnia / HAR / OpenAPI import'
+        EnableCurlImport         = 'cURL import'
+        EnableRepeatRequest      = 'Show the Repeat... button'
+        RestoreRequestTabs       = 'Reopen the request tabs of the last session'
+        CheckForUpdatesOnStartup = 'Check for updates at start-up (once a day)'
+        AutoSaveToFile           = 'Save downloaded files (binary or attachment responses) automatically to this folder:'
+        AutoRenameFile           = 'Name saved files after the uploaded file(s)'
+        EnableAutoRenamePrefix   = 'Add a prefix:'
     }
+    $checkKeys = @($checkOptions.Keys)
+    $escape = { param([string]$Text) [System.Security.SecurityElement]::Escape($Text) }
+    $check = { param([string]$Key, [string]$Margin = '0,5,16,5') "<CheckBox x:Name=`"Chk$Key`" Content=`"$(& $escape $checkOptions[$Key])`" Margin=`"$Margin`" VerticalAlignment=`"Center`"/>" }
+    $checks = { param([string[]]$Keys, [int]$Columns = 1) "<UniformGrid Columns=`"$Columns`">$((@($Keys | ForEach-Object { & $check $_ })) -join '')</UniformGrid>" }
+    $field = { param([string]$Label, [string]$Control) "<StackPanel Margin=`"0,6,28,4`"><TextBlock Text=`"$(& $escape $Label)`" Margin=`"0,0,0,4`"/>$Control</StackPanel>" }
+    $card = {
+        param([string]$Title, [string]$Content, [string]$Note = '')
+        $noteXaml = if ($Note) { "<TextBlock Style=`"{StaticResource SettingsNote}`" Text=`"$(& $escape $Note)`"/>" } else { '' }
+        "<Border Style=`"{StaticResource SettingsCard}`"><StackPanel><TextBlock Style=`"{StaticResource SectionLabel}`" Text=`"$(& $escape $Title.ToUpper())`" Margin=`"0,0,0,4`"/>$noteXaml$Content</StackPanel></Border>"
+    }
+    $tab = { param([string]$Header, [string]$Content) "<TabItem Header=`"$Header`"><ScrollViewer VerticalScrollBarVisibility=`"Auto`"><StackPanel Margin=`"2,14,10,4`">$Content</StackPanel></ScrollViewer></TabItem>" }
+
+    $general = (& $card 'Appearance' ('<WrapPanel>' + (& $field 'App theme' '<ComboBox x:Name="CmbAppTheme" Width="180" Height="32" VerticalContentAlignment="Center"/>') +
+                    (& $field 'Response font size (8-72)' '<TextBox x:Name="TxtResponseFontSize" Width="100" Height="32" VerticalContentAlignment="Center"/>') + '</WrapPanel>') 'The theme changes immediately - also with the button next to Settings in the header.') +
+               (& $card 'Start-up' (& $checks @('RestoreRequestTabs', 'CheckForUpdatesOnStartup'))) +
+               (& $card 'Logging' ((& $check 'EnableLogs') + '<WrapPanel>' + (& $field 'Log level' '<ComboBox x:Name="CmbLogLevel" Width="150" Height="32" VerticalContentAlignment="Center"/>') + '</WrapPanel>' +
+                    '<WrapPanel Margin="0,10,0,0"><Button x:Name="ViewLogsButton" Width="130" Height="32" Margin="0,0,8,0" Content="View logs"/><Button x:Name="OpenLogsButton" Width="150" Height="32" Margin="0,0,8,0" Content="Open logs folder"/><Button x:Name="ClearLogsButton" Width="130" Height="32" Content="Clear logs"/></WrapPanel>'))
+    $interface = (& $card 'Panels' (& $checks @('ShowEnvironmentPanel', 'ShowHistory', 'ShowResponse') 3) 'Hide what you do not use; everything can be shown again here.') +
+                 (& $card 'Request tabs' (& $checks @('ShowRequestHeadersTab', 'ShowAuthTab', 'ShowPreRequestTab', 'ShowTestsTab') 4)) +
+                 (& $card 'Response tabs' (& $checks @('ShowResponseHeaders', 'ShowJsonTreeTab', 'ShowCurl', 'ShowConsoleTab', 'ShowTestResultsTab') 3))
+    $requests = (& $card 'Sending' ('<WrapPanel>' + (& $field 'Timeout (seconds)' '<TextBox x:Name="TxtRequestTimeoutSeconds" Width="100" Height="32" VerticalContentAlignment="Center"/>') + '</WrapPanel>' + (& $checks @('EnableAllMethods', 'IgnoreSslErrors')))) +
+                (& $card 'Repeat' ((& $check 'EnableRepeatRequest') + '<WrapPanel>' + (& $field 'Maximum repeats (1-100)' '<TextBox x:Name="TxtMaxRepeatCount" Width="100" Height="32" VerticalContentAlignment="Center"/>') + '</WrapPanel>')) +
+                (& $card 'Import' (& $checks @('EnablePostmanImport', 'EnableCurlImport') 2)) +
+                (& $card 'Console' ('<WrapPanel>' + (& $field 'Default language' '<ComboBox x:Name="CmbDefaultConsoleLanguage" Width="220" Height="32" VerticalContentAlignment="Center"/>') + '</WrapPanel>') 'Used for console commands without a prefix such as python:.')
+    $history = & $card 'History' (& $checks @('EnableHistory', 'AutoRunHistory', 'HistorySaveResponses')) 'The last 50 requests are kept.'
+    $files = & $card 'Downloaded files' ((& $check 'AutoSaveToFile') +
+                '<DockPanel Margin="0,4,0,10"><Button x:Name="BrowseAutoSaveButton" DockPanel.Dock="Right" Width="110" Height="32" Margin="8,0,0,0" Content="Browse..."/><TextBox x:Name="TxtAutoSavePath" Height="32" VerticalContentAlignment="Center"/></DockPanel>' +
+                (& $check 'AutoRenameFile') +
+                '<DockPanel Margin="0,4,0,0">' + (& $check 'EnableAutoRenamePrefix' '0,0,10,0') + '<TextBox x:Name="TxtAutoRenamePrefix" Height="32" Width="240" HorizontalAlignment="Left" VerticalContentAlignment="Center"/></DockPanel>') `
+                'The file name comes from the server (Content-Disposition). When this is off, the Save response to file path on the request Options tab is used.'
+
     $body = @"
   <Grid Margin="22,16,22,16">
+    <Grid.Resources>
+      <Style x:Key="SettingsCard" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource Surface}"/><Setter Property="BorderBrush" Value="{StaticResource Border}"/><Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="16,12"/><Setter Property="Margin" Value="0,0,0,12"/>
+      </Style>
+      <Style x:Key="SettingsNote" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource Muted}"/><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="Margin" Value="0,0,0,8"/>
+      </Style>
+    </Grid.Resources>
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource Primary}" Margin="0,0,0,10"/>
-    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-      <StackPanel Margin="0,0,10,0">
-        $($groupXaml -join "`n")
-        <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="8" Padding="14,10" Margin="0,0,0,12">
-          <WrapPanel>
-            <StackPanel Margin="0,0,24,8"><TextBlock Style="{StaticResource SectionLabel}" Text="APP THEME"/><ComboBox x:Name="CmbAppTheme" Width="170" Height="28" Margin="0,4,0,0" VerticalContentAlignment="Center"/></StackPanel>
-            <StackPanel Margin="0,0,24,8"><TextBlock Style="{StaticResource SectionLabel}" Text="LOG LEVEL"/><ComboBox x:Name="CmbLogLevel" Width="120" Height="28" Margin="0,4,0,0" VerticalContentAlignment="Center"/></StackPanel>
-            <StackPanel Margin="0,0,24,8"><TextBlock Style="{StaticResource SectionLabel}" Text="DEFAULT CONSOLE LANGUAGE"/><ComboBox x:Name="CmbDefaultConsoleLanguage" Width="200" Height="28" Margin="0,4,0,0" VerticalContentAlignment="Center"/></StackPanel>
-            <StackPanel Margin="0,0,24,8"><TextBlock Style="{StaticResource SectionLabel}" Text="TIMEOUT (SECONDS)"/><TextBox x:Name="TxtRequestTimeoutSeconds" Width="90" Height="28" Margin="0,4,0,0" VerticalContentAlignment="Center"/></StackPanel>
-            <StackPanel Margin="0,0,24,8"><TextBlock Style="{StaticResource SectionLabel}" Text="RESPONSE FONT SIZE (8-72)"/><TextBox x:Name="TxtResponseFontSize" Width="90" Height="28" Margin="0,4,0,0" VerticalContentAlignment="Center"/></StackPanel>
-            <StackPanel Margin="0,0,24,8"><TextBlock Style="{StaticResource SectionLabel}" Text="MAX REPEATS (1-100)"/><TextBox x:Name="TxtMaxRepeatCount" Width="90" Height="28" Margin="0,4,0,0" VerticalContentAlignment="Center"/></StackPanel>
-          </WrapPanel>
-        </Border>
-        <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="8" Padding="14,10">
-          <StackPanel>
-            <TextBlock Style="{StaticResource SectionLabel}" Text="AUTO-SAVE &amp; RENAMING"/>
-            <CheckBox x:Name="ChkAutoSaveToFile" Content="Auto-save downloaded files (binary or attachment responses) to a folder" Margin="0,8,0,6"/>
-            <DockPanel Margin="0,0,0,6"><Button x:Name="BrowseAutoSaveButton" DockPanel.Dock="Right" Margin="8,0,0,0" Padding="14,3" Content="Browse..."/><TextBox x:Name="TxtAutoSavePath" Height="28" VerticalContentAlignment="Center"/></DockPanel>
-            <CheckBox x:Name="ChkAutoRenameFile" Content="Name saved files after the uploaded file(s)" Margin="0,4,0,6"/>
-            <DockPanel><CheckBox x:Name="ChkEnableAutoRenamePrefix" Content="Prefix:" VerticalAlignment="Center" Margin="0,0,8,0"/><TextBox x:Name="TxtAutoRenamePrefix" Height="28" Width="240" HorizontalAlignment="Left" VerticalContentAlignment="Center"/></DockPanel>
-          </StackPanel>
-        </Border>
-      </StackPanel>
-    </ScrollViewer>
+    <TabControl Grid.Row="1" Background="Transparent" BorderThickness="0">
+      $(& $tab 'General' $general)
+      $(& $tab 'Interface' $interface)
+      $(& $tab 'Requests' $requests)
+      $(& $tab 'History' $history)
+      $(& $tab 'Files' $files)
+    </TabControl>
     <DockPanel Grid.Row="2" Margin="0,14,0,0">
-      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
-        <Button x:Name="RestoreButton" Padding="14,6" Margin="0,0,8,0" Content="Restore defaults"/>
-        <Button x:Name="ViewLogsButton" Padding="14,6" Margin="0,0,8,0" Content="View logs"/>
-        <Button x:Name="OpenLogsButton" Padding="14,6" Margin="0,0,8,0" Content="Open logs folder"/>
-        <Button x:Name="ClearLogsButton" Padding="14,6" Content="Clear logs"/>
-      </StackPanel>
+      <Button x:Name="RestoreButton" DockPanel.Dock="Left" Width="150" Height="34" Content="Restore defaults"/>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
         <TextBlock x:Name="SettingsStatus" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="#D93025"/>
-        <Button x:Name="SaveButton" Style="{StaticResource PrimaryButton}" Width="100" Content="Save"/>
-        <Button x:Name="CancelButton" IsCancel="True" Width="90" Margin="10,0,0,0" Content="Cancel"/>
+        <Button x:Name="SaveButton" Style="{StaticResource PrimaryButton}" Width="100" Height="34" Content="Save"/>
+        <Button x:Name="CancelButton" IsCancel="True" Width="100" Height="34" Margin="10,0,0,0" Content="Cancel"/>
       </StackPanel>
     </DockPanel>
   </Grid>
 "@
     $names = @($checkKeys | ForEach-Object { "Chk$_" }) + @('CmbAppTheme', 'CmbLogLevel', 'CmbDefaultConsoleLanguage', 'TxtRequestTimeoutSeconds', 'TxtResponseFontSize', 'TxtMaxRepeatCount', 'TxtAutoSavePath', 'TxtAutoRenamePrefix',
         'BrowseAutoSaveButton', 'RestoreButton', 'ViewLogsButton', 'OpenLogsButton', 'ClearLogsButton', 'SettingsStatus', 'SaveButton', 'CancelButton')
-    $dialog = New-DialogWindow -BodyXaml $body -ControlNames $names -Title 'Settings' -Width 940 -Height 820
+    $dialog = New-DialogWindow -BodyXaml $body -ControlNames $names -Title 'Settings' -Width 880 -Height 720
     $window = $dialog.Window; $controls = $dialog.Controls
     $script:settingsDialogSaved = $false
 

@@ -330,6 +330,7 @@ function Invoke-MenuImportWorkspace {
         Set-UiStatus 'Workspace imported.'
         Set-AppThemeLive -ThemeName ([string]$script:settings.AppTheme)
         Show-UiMessage 'Workspace imported.' 'Import Successful'
+        Complete-ThemeSwitch
     } catch {
         Write-UiLog "Workspace import failed: $($_.Exception.Message)"
         Show-UiMessage "Failed to import workspace: $($_.Exception.Message)" 'Import Error' 'Error'
@@ -356,10 +357,12 @@ function Invoke-MenuResetLayout {
 }
 
 function Invoke-MenuSettings {
+    $script:themeAppliedLive = $true
     if (Show-SettingsDialog) {
         Update-UiFromSettings
         Write-UiLog 'Settings saved.'
         Set-UiStatus 'Settings saved.'
+        Complete-ThemeSwitch
     }
 }
 
@@ -372,7 +375,7 @@ function Invoke-MenuGlobalVariables {
     Save-Settings
     Save-Globals
     Update-ExtractVariableChoices
-    Update-AllCodeHighlights
+    Update-AllCodeHighlights -Except 'ResponseBody'
     Set-UiStatus 'Global variables updated.'
 }
 
@@ -415,7 +418,7 @@ function Register-MainMenuHandlers {
 
     # Help
     $Controls.MenuAbout.Add_Click({ Invoke-UiGuard { Show-AboutWindow } 'About' })
-    $Controls.MenuShortcuts.Add_Click({ Show-KeyboardShortcuts -parentForm (Get-MainWindow) })
+    $Controls.MenuShortcuts.Add_Click({ Invoke-UiGuard { Show-ShortcutEditorDialog } 'Keyboard shortcuts' })
 
     Update-ImportMenuVisibility
 }

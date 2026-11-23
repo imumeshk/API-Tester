@@ -11,6 +11,8 @@ PowerShell API Tester is a fully-featured, ultra-lightweight alternative to Post
 ## ✨ What's new in V3
 New interface with instant Light/Dark themes, syntax highlighting and variable hover, a Params tab, test snippets, folder/collection inheritance, Postman/Insomnia/HAR import and Postman export, history with saved responses, parallel runs with retries and HTML reports, background monitors with a status tray icon, a live browser dashboard, Teams/Slack/webhook alerts, secret variables and a built-in updater. See [docs/releases/v3.0.0.md](docs/releases/v3.0.0.md) and [CHANGELOG.md](CHANGELOG.md).
 
+**3.1:** one-click light/dark switch, customisable keyboard shortcuts, redesigned Settings, Environments and Monitor Manager windows, and a faster start - see [docs/releases/v3.1.0.md](docs/releases/v3.1.0.md).
+
 📖 **New to API Tester? Read the [User Guide](docs/USER_GUIDE.md)** - installation, every feature, shortcuts and troubleshooting.
 
 ## 🚀 Features (V2 Update)
@@ -83,7 +85,7 @@ Full instructions: [User Guide](docs/USER_GUIDE.md).
 ### Updating
 - In the app: **Help -> About API Tester -> Check for updates** (the app also checks once a day at start-up).
 - Or download `API-Tester.ps1` from the [latest release](https://github.com/imumeshk/API-Tester/releases/latest) and replace your copy - keep the `Configuration`, `History` and `Logs` folders next to it.
-- Publishing a release: `.\tools\Release.ps1 Publish -Bump Patch` - see [docs/RELEASING.md](docs/RELEASING.md).
+- New versions are published automatically by GitHub Actions when a version tag (for example `v3.1.0`) is pushed.
 
 ## ⚙️ Configuration & Data
 All your collections, environments, and settings are saved automatically next to the script at runtime:
